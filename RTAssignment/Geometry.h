@@ -71,53 +71,44 @@ public:
 		e2 = vertices[0].p - vertices[2].p;
 		n = e1.cross(e2).normalize();
 		area = e1.cross(e2).length() * 0.5f;
-		d = Dot(n, vertices[0].p);
+		d = -Dot(n, vertices[0].p);
 	}
 	Vec3 centre() const
 	{
 		return (vertices[0].p + vertices[1].p + vertices[2].p) / 3.0f;
 	}
 	// Add code here
-	bool rayIntersect(const Ray& r, float& t, float& u, float& v) const
+	bool rayIntersect(const Ray& r, float& t, float& alpha, float& beta) const
 	{
+		////Method1: start with ray-plane intersection 
 		//float denom = Dot(n, r.dir);
-		//if (denom == 0) return false;
-		//t = -(Dot(n, r.o) + d) / denom;
-		//if (t < 0) return false;
-		//Vec3 P = r.at(t);
-		//Vec3 q1 = P - vertices[1].p;
-		//Vec3 C1 = Cross(e1, q1);
-		//float invA = 1/Dot(Cross(e1, e2), n);
-		//u = Dot(C1, n) * invA;
-		//if (u < 0 || u>1.f) return false;
-		//Vec3 q2 = P - vertices[2].p;
-		//Vec3 C2 = Cross(e2, q2);
-		//v = Dot(C2, n) * invA;
-		//if (v < 0 || u + v > 1.f) return false;
+		//if (denom == 0) { return false; }
+		//t = -(d + Dot(n, r.o)) / denom;
+		//if (t < 0) { return false; }
+		//Vec3 p = r.at(t);
+		//float invArea = 1.0f / Dot(e1.cross(e2), n);
+		//alpha = Dot(e1.cross(p - vertices[1].p), n) * invArea;
+		//if (alpha < 0 || alpha > 1.0f) { return false; }
+		//beta = Dot(e2.cross(p - vertices[2].p), n) * invArea;
+		//if (beta < 0 || (alpha + beta) > 1.0f) { return false; }
 		//return true;
 
-
-		float denom = Dot(n, r.dir);
-		if (denom == 0) { return false; }
-		t = (d - Dot(n, r.o)) / denom;
+		//Method2:Moller-Trumbore
+		Vec3 T = r.o - vertices[2].p;
+		Vec3 P = Cross(r.dir, e2);
+		Vec3 Q = Cross(T, e1);
+		float denom = Dot(e1, P);
+		if (fabs(denom) < EPSILON) { return false; }
+		float invdet = 1 / denom;
+		alpha = Dot(r.dir, Q) * invdet;
+		if (alpha < 0 || alpha > 1) { return false; }
+		beta = - Dot(T, P) * invdet;
+		if (beta < 0 || alpha + beta > 1) { return false; }
+		t = Dot(e2, Q) * invdet;
 		if (t < 0) { return false; }
-		Vec3 p = r.at(t);
-		float invArea = 1.0f / Dot(e1.cross(e2), n);
-		u = Dot(e1.cross(p - vertices[1].p), n) * invArea;
-		if (u < 0 || u > 1.0f) { return false; }
-		v = Dot(e2.cross(p - vertices[2].p), n) * invArea;
-		if (v < 0 || (u + v) > 1.0f) { return false; }
 		return true;
 
-		//Vec3 T = r.o - vertices[0].p;
-		//float invdet = 1 / Dot(e1, Cross(r.dir, e2));
-		//float beta = Dot(T, Cross(r.dir, e2)) * invdet;
-		//if (beta < 0 || beta>1) return false;
-		//Vec3 q = Cross(T, e1);
-		//float gamma = Dot(r.dir, q) * invdet;
-		//if (gamma < 0 || beta + gamma>1) return false;
-		//t = Dot(e2, q) * invdet;
-		//return true;
+
 	}
 	void interpolateAttributes(const float alpha, const float beta, const float gamma, Vec3& interpolatedNormal, float& interpolatedU, float& interpolatedV) const
 	{
@@ -165,11 +156,8 @@ public:
 		Vec3 Texit = Max(Tmin, Tmax);
 		float tentry = std::max(Tentry.x, std::max(Tentry.y, Tentry.z));
 		float texit = std::min(Texit.x, std::min(Texit.y, Texit.z));
-		//t = std::min(tentry, texit);
-		//return (tentry <= texit && texit > 0);
 		if (tentry > texit || texit < 0)
 			return false;
-
 		t = (tentry >= 0) ? tentry : texit;
 		return true;
 	}
@@ -182,7 +170,7 @@ public:
 		Vec3 Texit = Max(Tmin, Tmax);
 		float tentry = std::max(Tentry.x, std::max(Tentry.y, Tentry.z));
 		float texit = std::min(Texit.x, std::min(Texit.y, Texit.z));
-		return (tentry <= texit && texit > 0);
+		return (tentry <= texit && texit >= 0);
 	}
 	// Add code here
 	float area()
@@ -205,6 +193,22 @@ public:
 	// Add code here
 	bool rayIntersect(Ray& r, float& t)
 	{
+		Vec3 l = r.o - centre;
+		float b = Dot(l, r.dir);
+		float c = Dot(l, l) - radius * radius;
+		float dis = b * b - c;
+		if (dis < 0) {
+			return false;
+		}
+		float sqrtDis = sqrt(dis);
+		if (-b - sqrtDis > 0) {
+			t = -b - sqrtDis;
+			return true;
+		}
+		if (-b + sqrtDis > 0) {
+			t = -b + sqrtDis;
+			return true;
+		}
 		return false;
 	}
 };

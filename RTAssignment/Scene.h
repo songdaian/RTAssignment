@@ -46,7 +46,7 @@ public:
 		float yprime = 1.f - (y / height);
 		xprime = (xprime * 2.f - 1.f);
 		yprime = (yprime * 2.f - 1.f);
-		Vec3 dir(xprime, yprime, 0.f);//?
+		Vec3 dir(xprime, yprime, 0.f);
 		dir = inverseProjectionMatrix.mulPointAndPerspectiveDivide(dir);
 		dir = camera.mulVec(dir);
 		dir = dir.normalize();
