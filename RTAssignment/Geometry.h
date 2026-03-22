@@ -227,6 +227,11 @@ struct IntersectionData
 #define TRIANGLE_COST 2.0f
 #define BUILD_BINS 32
 
+struct Bin { 
+	AABB bounds;
+	int count = 0; 
+};
+
 class BVHNode
 {
 public:
@@ -237,20 +242,208 @@ public:
 	// But you can store this however you want!
 	// unsigned int offset;
 	// unsigned char num;
+	unsigned int offset;
+	unsigned int num; // 0 if current Node is not a leaf node
+	
 	BVHNode()
 	{
 		r = NULL;
 		l = NULL;
+		offset = 0;
+		num = 0;
 	}
 	// Note there are several options for how to implement the build method. Update this as required
+	float axisComponent(const Vec3& v, int axis) const {
+		if (axis == 0) return v.x;
+		if (axis == 1) return v.y;
+		return v.z;
+	}
+
+	AABB calcFullBounds(std::vector<Triangle>& tris, int start, int count) {
+		AABB b;
+		for (int i = start; i < start + count; i++) {
+			b.extend(tris[i].vertices[0].p);
+			b.extend(tris[i].vertices[1].p);
+			b.extend(tris[i].vertices[2].p);
+		}
+		return b;
+	}
+
+	AABB calcCentroidBounds(std::vector<Triangle>& triangles, int start, int count) {
+		AABB b;
+		for (int i = start; i < start + count; i++) {
+			b.extend(triangles[i].centre());
+		}
+		return b;
+	}
+
+	void auxBuild(std::vector<Triangle>& triangles, int start, int count) {
+		offset = start;
+		num = count; // will be set to 0 at the end if still need to split
+		bounds = calcFullBounds(triangles, start, count);
+		if (count == 1) return; //end condition: 1 triangle
+
+		//Use centroid bounds to split!
+		AABB cBounds = calcCentroidBounds(triangles, start, count);
+		Vec3 lens = cBounds.max - cBounds.min;
+		int axisOrder[3]; //0,1,2 to represent xyz
+		if (lens.x >= lens.y && lens.x >= lens.z) {
+			axisOrder[0] = 0;
+			if (lens.y >= lens.z) {
+				axisOrder[1] = 1;
+				axisOrder[2] = 2;
+			}
+			else {
+				axisOrder[1] = 2;
+				axisOrder[2] = 1;
+			}
+		} else if (lens.y >= lens.x && lens.y >= lens.z) {
+			axisOrder[0] = 1;
+			if (lens.x >= lens.z) {
+				axisOrder[1] = 0;
+				axisOrder[2] = 2;
+			}
+			else {
+				axisOrder[1] = 2;
+				axisOrder[2] = 0;
+			}
+		} else {
+			axisOrder[0] = 2;
+			if (lens.x >= lens.y) {
+				axisOrder[1] = 0;
+				axisOrder[2] = 1;
+			}
+			else {
+				axisOrder[1] = 1;
+				axisOrder[2] = 0;
+			}
+		}
+
+		float C_leaf = count * TRIANGLE_COST;
+		int ansAxis = -1;
+		int ansSplitIdx = -1;
+
+		for (int i = 0; i < 3; i++) {
+			int axis = axisOrder[i];
+			if (axisComponent(lens, axis) < EPSILON) continue; //Avoid div 0
+			std::vector<Bin> bins(BUILD_BINS);
+			float invBinLen = BUILD_BINS / axisComponent(lens, axis);
+			// for each triangle, culculate bin index and update that bin
+			for (int j = start; j < start + count; j++) {
+				int binIdx = std::floor((axisComponent(triangles[j].centre(), axis) - axisComponent(cBounds.min,axis)) * invBinLen);
+				binIdx = std::max(0, std::min(binIdx, BUILD_BINS - 1));//clamp to avoid exception caused by floating point precision error
+				bins[binIdx].count++;
+				bins[binIdx].bounds.extend(triangles[j].vertices[0].p);
+				bins[binIdx].bounds.extend(triangles[j].vertices[1].p);
+				bins[binIdx].bounds.extend(triangles[j].vertices[2].p);
+			}
+			
+			// Hard to shrink box, so pre-calculate and store j-th right box's(from bin j+1 to BUILD_BINS-1) info in rightAreas[j]
+			std::vector<float> rightAreas(BUILD_BINS - 1, 0);
+			std::vector<int> rightCounts(BUILD_BINS - 1, 0);
+			AABB rightBox;
+			int rightCount = 0;
+			for (int j = BUILD_BINS - 2; j >= 0; j--) {
+				rightCount += bins[j+1].count;
+				rightCounts[j] = rightCount;
+				if (bins[j].count > 0) {
+					rightBox.extend(bins[j].bounds.min);
+					rightBox.extend(bins[j].bounds.max);
+				}
+				if (rightCount > 0) {
+					rightAreas[j] = rightBox.area();
+				}
+			}
+
+			AABB leftBox;
+			int leftCount = 0;
+			float minCost = C_leaf;
+			int curSplitIdx = -1;
+			float denom = TRIANGLE_COST / bounds.area();
+			for (int j = 0; j < BUILD_BINS - 1; j++) {
+				leftCount += bins[j].count;
+				if (leftCount == 0 || rightCounts[j] == 0) continue;
+				if (bins[j].count > 0) {
+					leftBox.extend(bins[j].bounds.min);
+					leftBox.extend(bins[j].bounds.max);
+				}
+				float cost = TRAVERSE_COST + (leftCount * leftBox.area() + rightCounts[j] * rightAreas[j]) * denom;
+				if (cost < minCost) {
+					minCost = cost;
+					curSplitIdx = j;
+				}
+			}
+			if (minCost < C_leaf) {
+				ansAxis = axis;
+				ansSplitIdx = curSplitIdx;
+				break;
+			}
+		}
+
+		if (ansAxis == -1) return; //end condition: no need for split
+
+		float invBinLen = BUILD_BINS / axisComponent(lens, ansAxis);
+		int left = start;
+		int right = start + count - 1;		
+		while (left <= right) {
+			while (left <= right) {
+				int binIdx = std::floor((axisComponent(triangles[left].centre(), ansAxis) - axisComponent(cBounds.min, ansAxis)) * invBinLen);
+				if (binIdx <= ansSplitIdx) left++;
+				else break;
+			}			
+			while (left <= right) {
+				int binIdx = std::floor((axisComponent(triangles[right].centre(), ansAxis) - axisComponent(cBounds.min, ansAxis)) * invBinLen);
+				if (binIdx > ansSplitIdx) right--;
+				else break;
+			}
+			if (left < right) {
+				std::swap(triangles[left], triangles[right]);
+				left++;
+				right--;
+			}
+		}
+		int sep = left;
+		if (sep == start || sep == start + count) return;
+		num = 0;
+		l = new BVHNode();
+		r = new BVHNode();
+		l->auxBuild(triangles, start, sep - start);
+		r->auxBuild(triangles, sep, start + count - sep);
+	}
+
 	void build(std::vector<Triangle>& inputTriangles)
 	{
 		// Add BVH building code here
+		if (inputTriangles.empty()) return;
+		auxBuild(inputTriangles, 0, inputTriangles.size());
 	}
+	
 	void traverse(const Ray& ray, const std::vector<Triangle>& triangles, IntersectionData& intersection)
 	{
 		// Add BVH Traversal code here
+		float t;
+		if (!bounds.rayAABB(ray, t)) return;
+		if (t >= intersection.t) return;
+		if (num > 0) {
+			// leaf
+			for (int i = 0; i < num; i++) {
+				float alpha, beta;
+				if (triangles[offset + i].rayIntersect(ray, t, alpha, beta)) {
+					if (t < intersection.t) {
+						intersection.t = t;
+						intersection.alpha = alpha;
+						intersection.beta = beta;
+						intersection.gamma = 1.0f - alpha - beta;
+						intersection.ID = offset + i;
+					}
+				}
+			}
+		} else {
+			if (l) l->traverse(ray, triangles, intersection);
+			if (r) r->traverse(ray, triangles, intersection);
+		}
 	}
+	
 	IntersectionData traverse(const Ray& ray, const std::vector<Triangle>& triangles)
 	{
 		IntersectionData intersection;
@@ -258,9 +451,25 @@ public:
 		traverse(ray, triangles, intersection);
 		return intersection;
 	}
+	
 	bool traverseVisible(const Ray& ray, const std::vector<Triangle>& triangles, const float maxT)
 	{
 		// Add visibility code here
+		float t;
+		if (!bounds.rayAABB(ray, t)) return true;
+		if (t >= maxT) return true;
+
+		if (num > 0) {
+			for (unsigned int i = 0; i < num; i++) {
+				float alpha, beta;
+				if (triangles[offset + i].rayIntersect(ray, t, alpha, beta)) {
+					if (t < maxT) return false; //hit any nearer triangle, return false.
+				}
+			}
+		} else {
+			if (l && !l->traverseVisible(ray, triangles, maxT)) return false;
+			if (r && !r->traverseVisible(ray, triangles, maxT)) return false;
+		}
 		return true;
 	}
 };

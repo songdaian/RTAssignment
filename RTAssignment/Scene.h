@@ -82,6 +82,10 @@ public:
 	void build()
 	{
 		// Add BVH building code here
+		if (!bvh) {
+			bvh = new BVHNode();
+		}
+		bvh->build(triangles);
 		
 		// Do not touch the code below this line!
 		// Build light list
@@ -100,22 +104,8 @@ public:
 	{
 		IntersectionData intersection;
 		intersection.t = FLT_MAX;
-		for (int i = 0; i < triangles.size(); i++)
-		{
-			float t;
-			float u;
-			float v;
-			if (triangles[i].rayIntersect(ray, t, u, v))
-			{
-				if (t < intersection.t)
-				{
-					intersection.t = t;
-					intersection.ID = i;
-					intersection.alpha = u;
-					intersection.beta = v;
-					intersection.gamma = 1.0f - (u + v);
-				}
-			}
+		if (bvh) {
+			bvh->traverse(ray, triangles, intersection);
 		}
 		return intersection;
 	}
