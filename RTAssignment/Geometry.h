@@ -163,7 +163,8 @@ public:
 		float texit = std::min(Texit.x, std::min(Texit.y, Texit.z));
 		if (tentry > texit || texit < 0)
 			return false;
-		t = (tentry >= 0) ? tentry : texit;
+		
+		t = tentry;
 		return true;
 	}
 	// Add code here
