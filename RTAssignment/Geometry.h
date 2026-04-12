@@ -120,7 +120,12 @@ public:
 	// Add code here
 	Vec3 sample(Sampler* sampler, float& pdf)
 	{
-		return Vec3(0, 0, 0);
+		float r1 = sampler->next();
+		float r2 = sampler->next();
+		float alpha = 1 - sqrt(r1);
+		float beta = r2 * sqrt(r1);
+		pdf = 1.f / area;
+		return vertices[0].p * alpha + vertices[1].p * beta + vertices[2].p * (1-alpha-beta);
 	}
 	Vec3 gNormal()
 	{
@@ -225,7 +230,7 @@ struct IntersectionData
 #define MAXNODE_TRIANGLES 8
 #define TRAVERSE_COST 1.0f
 #define TRIANGLE_COST 2.0f
-#define BUILD_BINS 32
+#define BUILD_BINS 16
 
 struct Bin { 
 	AABB bounds;
@@ -286,45 +291,13 @@ public:
 		//Use centroid bounds to split!
 		AABB cBounds = calcCentroidBounds(triangles, start, count);
 		Vec3 lens = cBounds.max - cBounds.min;
-		int axisOrder[3]; //0,1,2 to represent xyz
-		if (lens.x >= lens.y && lens.x >= lens.z) {
-			axisOrder[0] = 0;
-			if (lens.y >= lens.z) {
-				axisOrder[1] = 1;
-				axisOrder[2] = 2;
-			}
-			else {
-				axisOrder[1] = 2;
-				axisOrder[2] = 1;
-			}
-		} else if (lens.y >= lens.x && lens.y >= lens.z) {
-			axisOrder[0] = 1;
-			if (lens.x >= lens.z) {
-				axisOrder[1] = 0;
-				axisOrder[2] = 2;
-			}
-			else {
-				axisOrder[1] = 2;
-				axisOrder[2] = 0;
-			}
-		} else {
-			axisOrder[0] = 2;
-			if (lens.x >= lens.y) {
-				axisOrder[1] = 0;
-				axisOrder[2] = 1;
-			}
-			else {
-				axisOrder[1] = 1;
-				axisOrder[2] = 0;
-			}
-		}
 
 		float C_leaf = count * TRIANGLE_COST;
+		float minCost = C_leaf;
 		int ansAxis = -1;
 		int ansSplitIdx = -1;
 
-		for (int i = 0; i < 3; i++) {
-			int axis = axisOrder[i];
+		for (int axis = 0; axis < 3; axis++) {
 			if (axisComponent(lens, axis) < EPSILON) continue; //Avoid div 0
 			std::vector<Bin> bins(BUILD_BINS);
 			float invBinLen = BUILD_BINS / axisComponent(lens, axis);
@@ -357,8 +330,6 @@ public:
 
 			AABB leftBox;
 			int leftCount = 0;
-			float minCost = C_leaf;
-			int curSplitIdx = -1;
 			float denom = TRIANGLE_COST / bounds.area();
 			for (int j = 0; j < BUILD_BINS - 1; j++) {
 				leftCount += bins[j].count;
@@ -370,13 +341,9 @@ public:
 				float cost = TRAVERSE_COST + (leftCount * leftBox.area() + rightCounts[j] * rightAreas[j]) * denom;
 				if (cost < minCost) {
 					minCost = cost;
-					curSplitIdx = j;
+					ansAxis = axis;
+					ansSplitIdx = j;
 				}
-			}
-			if (minCost < C_leaf) {
-				ansAxis = axis;
-				ansSplitIdx = curSplitIdx;
-				break;
 			}
 		}
 

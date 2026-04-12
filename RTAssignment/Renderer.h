@@ -45,6 +45,18 @@ public:
 		{
 			return Colour(0.0f, 0.0f, 0.0f);
 		}
+		float pmf;
+		Light* l = scene->sampleLight(sampler, pmf);
+		Colour Le;
+		float pdf;
+		Vec3 lpos = l->sample(shadingData, sampler, Le, pdf);
+		Vec3 wi = (lpos - shadingData.x).normalize();
+		if (l->isArea()) {
+			float g_term = std::max(0.f,Dot(-wi, l->normal(shadingData, wi))) * std::max(0.f,Dot(shadingData.sNormal, wi)) / Dot(lpos - shadingData.x, lpos - shadingData.x) * scene->visible(lpos, shadingData.x);
+			Colour c2 = shadingData.bsdf->evaluate(shadingData, wi);
+			return Le * c2 * g_term / (pdf * pmf);
+		}
+
 		// Compute direct lighting here
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
@@ -55,8 +67,19 @@ public:
 	}
 	Colour direct(Ray& r, Sampler* sampler)
 	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t < FLT_MAX)
+		{
+			if (shadingData.bsdf->isLight())
+			{
+				return shadingData.bsdf->emit(shadingData, shadingData.wo);
+			}
+			return computeDirect(shadingData, sampler);
+		}
+		return scene->background->evaluate(r.dir);
+
 		// Compute direct lighting for an image sampler here
-		return Colour(0.0f, 0.0f, 0.0f);
 	}
 	Colour albedo(Ray& r)
 	{
@@ -92,8 +115,9 @@ public:
 				float px = x + 0.5f;
 				float py = y + 0.5f;
 				Ray ray = scene->camera.generateRay(px, py);
-				Colour col = viewNormals(ray);
+				//Colour col = viewNormals(ray);
 				//Colour col = albedo(ray);
+				Colour col = direct(ray,samplers);
 				film->splat(px, py, col);
 				//unsigned char r = (unsigned char)(col.r * 255);
 				//unsigned char g = (unsigned char)(col.g * 255);
