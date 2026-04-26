@@ -39,7 +39,6 @@ public:
 	}
 	static float uniformHemispherePDF(const Vec3 wi)
 	{
-		// Add code here
 		if (wi.z > 0) {
 			return M_1_PI/2;
 		}
@@ -53,7 +52,6 @@ public:
 	}
 	static float cosineHemispherePDF(const Vec3 wi)
 	{
-		// Add code here
 		return wi.z * M_1_PI;
 	}
 	static Vec3 uniformSampleSphere(float r1, float r2)

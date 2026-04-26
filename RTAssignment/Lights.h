@@ -131,17 +131,94 @@ class EnvironmentMap : public Light
 {
 public:
 	Texture* env;
+	std::vector<float> marginalPDF;// P(vIndex)
+	std::vector<float> marginalCDF;
+	std::vector<std::vector<float>> conditionalPDF;//P(uIndex|vIndex)
+	std::vector<std::vector<float>> conditionalCDF;
 	EnvironmentMap(Texture* _env)
 	{
 		env = _env;
+		int w = env->width;
+		int h = env->height;
+		marginalPDF.resize(h, 0.0f);
+		marginalCDF.resize(h + 1, 0.0f);
+		conditionalPDF.resize(h, std::vector<float>(w, 0.0f));
+		conditionalCDF.resize(h, std::vector<float>(w + 1, 0.0f));
+		std::vector<float> rowWeights(h, 0.0f);
+		float totalWeight = 0.0f;
+
+		// build row weights and conditional pdf each row
+		for (int i = 0; i < h; ++i)
+		{
+			float sinTheta = sinf((i + 0.5f) / (float)h * M_PI);
+			float rowWeight = 0.0f;
+			for (int j = 0; j < w; ++j)
+			{
+				// weight = Lum * sin(theta)
+				float weight = env->texels[(i * w) + j].Lum() * sinTheta;
+				conditionalPDF[i][j] = weight;//will be normalized
+				rowWeight += weight;
+			}
+			rowWeights[i] = rowWeight;
+			totalWeight += rowWeight;
+
+			// build CDF(u|v)
+			if (rowWeight > 1e-7)
+			{
+				for (int j = 0; j < w; j++)
+				{
+					conditionalPDF[i][j] /= rowWeight;
+					conditionalCDF[i][j + 1] = conditionalCDF[i][j] + conditionalPDF[i][j];
+				}
+			}
+			else
+			{
+				// total black
+				for (int j = 0; j < w; j++)
+				{
+					conditionalPDF[i][j] = 1.0f / w;
+					conditionalCDF[i][j + 1] = (float)(j + 1) / w;
+				}
+			}
+
+		}
+		//build marginal pdf and cdf
+		if (totalWeight > 0.0f)
+		{
+			for (int j = 0; j < h; ++j)
+			{
+				marginalPDF[j] = rowWeights[j] / totalWeight;
+				marginalCDF[j + 1] = marginalCDF[j] + marginalPDF[j];;
+			}
+		}
+		else
+		{
+			for (int j = 0; j < h; ++j)
+			{
+				marginalPDF[j] = 1.0f / h;
+				marginalCDF[j + 1] = (float)(j + 1) / h;
+			}
+		}
 	}
 	Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf)
 	{
-		// Assignment: Update this code to importance sampling lighting based on luminance of each pixel
-		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		pdf = SamplingDistributions::uniformSpherePDF(wi);
-		reflectedColour = evaluate(wi);
+		float vSample = sampler->next();
+		float uSample = sampler->next();
+		int vIndex = std::upper_bound(marginalCDF.begin(), marginalCDF.end(), vSample) - marginalCDF.begin() - 1;//b-search vSample
+		vIndex = std::min(std::max(vIndex, 0), env->height - 1);//clamp
+		int uIndex = std::upper_bound(conditionalCDF[vIndex].begin(), conditionalCDF[vIndex].end(), uSample) - conditionalCDF[vIndex].begin() - 1;
+		uIndex = std::min(std::max(uIndex, 0), env->width - 1);
+		float u = ((float)uIndex) / (float)env->width;
+		float v = ((float)vIndex) / (float)env->height;
+		float phi = u * 2.0f * M_PI;
+		float theta = v * M_PI;
+		float sinTheta = sinf(theta);
+		// Use Y-up coordinate
+		Vec3 wi = Vec3(cosf(phi) * sinTheta, cosf(theta), sinf(phi) * sinTheta);
+		pdf = marginalPDF[vIndex] * conditionalPDF[vIndex][uIndex] * env->width * env->height / (2.0f * M_PI * M_PI * sinTheta);
+		reflectedColour = env->texels[vIndex * env->width + uIndex];
 		return wi;
+
 	}
 	Colour evaluate(const Vec3& wi)
 	{
@@ -153,8 +230,17 @@ public:
 	}
 	float PDF(const ShadingData& shadingData, const Vec3& wi)
 	{
-		// Assignment: Update this code to return the correct PDF of luminance weighted importance sampling
-		return SamplingDistributions::uniformSpherePDF(wi);
+		float u = atan2f(wi.z, wi.x);
+		u = (u < 0.0f) ? u + (2.0f * M_PI) : u;
+		u = u / (2.0f * M_PI);
+		float v = acosf(wi.y) / M_PI;
+		int uIndex = std::max(0, std::min((int)(u * env->width), env->width - 1));
+		int vIndex = std::max(0, std::min((int)(v * env->height), env->height - 1));
+		// P(u, v) = P(vIndex) * P(uIndex|vIndex) * w * h;
+		float probUV = marginalPDF[vIndex] * conditionalPDF[vIndex][uIndex] * env->width * env->height;
+		float sinTheta = sinf(v * M_PI);
+		if (sinTheta <= 1e-7f) return 0.0f;
+		return probUV / (2.0f * M_PI * M_PI * sinTheta);
 	}
 	bool isArea()
 	{
