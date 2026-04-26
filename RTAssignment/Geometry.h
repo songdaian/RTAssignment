@@ -39,7 +39,6 @@ public:
 		n = _n;
 		d = _d;
 	}
-	// Add code here
 	bool rayIntersect(Ray& r, float& t)
 	{
 		float denom = Dot(n, r.dir);
@@ -98,7 +97,7 @@ public:
 		Vec3 P = Cross(r.dir, e2);
 		Vec3 Q = Cross(T, e1);
 		float denom = Dot(e1, P);
-		if (fabs(denom) < EPSILON) { return false; }
+		if (fabs(denom) < 1e-7f) { return false; }
 		float invdet = 1 / denom;
 		alpha = Dot(r.dir, Q) * invdet;
 		if (alpha < 0 || alpha > 1) { return false; }
@@ -152,7 +151,6 @@ public:
 		max = Max(max, p);
 		min = Min(min, p);
 	}
-	// Add code here
 	bool rayAABB(const Ray& r, float& t)
 	{
 		Vec3 Tmin = (min - r.o) * r.invDir;
@@ -167,7 +165,7 @@ public:
 		t = tentry;
 		return true;
 	}
-	// Add code here
+
 	bool rayAABB(const Ray& r)
 	{
 		Vec3 Tmin = (min - r.o) * r.invDir;
@@ -178,7 +176,7 @@ public:
 		float texit = std::min(Texit.x, std::min(Texit.y, Texit.z));
 		return (tentry <= texit && texit >= 0);
 	}
-	// Add code here
+
 	float area()
 	{
 		Vec3 size = max - min;
@@ -320,9 +318,9 @@ public:
 			for (int j = BUILD_BINS - 2; j >= 0; j--) {
 				rightCount += bins[j+1].count;
 				rightCounts[j] = rightCount;
-				if (bins[j].count > 0) {
-					rightBox.extend(bins[j].bounds.min);
-					rightBox.extend(bins[j].bounds.max);
+				if (bins[j+1].count > 0) {
+					rightBox.extend(bins[j+1].bounds.min);
+					rightBox.extend(bins[j+1].bounds.max);
 				}
 				if (rightCount > 0) {
 					rightAreas[j] = rightBox.area();
@@ -356,11 +354,13 @@ public:
 		while (left <= right) {
 			while (left <= right) {
 				int binIdx = std::floor((axisComponent(triangles[left].centre(), ansAxis) - axisComponent(cBounds.min, ansAxis)) * invBinLen);
+				binIdx = std::max(0, std::min(binIdx, BUILD_BINS - 1));
 				if (binIdx <= ansSplitIdx) left++;
 				else break;
 			}			
 			while (left <= right) {
 				int binIdx = std::floor((axisComponent(triangles[right].centre(), ansAxis) - axisComponent(cBounds.min, ansAxis)) * invBinLen);
+				binIdx = std::max(0, std::min(binIdx, BUILD_BINS - 1));
 				if (binIdx > ansSplitIdx) right--;
 				else break;
 			}
