@@ -10,23 +10,17 @@
 void runTests()
 {
 	// Add test code here
-	Plane p;
-	Vec3 n{ 0, 0, 1 };
-	p.init(n, 2);
-	Ray r(Vec3(0, 0, -1), Vec3(0, 0, 1));
-	float t;
-	p.rayIntersect(r, t);
-	float tt = t;
 }
 
 int main(int argc, char *argv[])
 {
 	// Add call to tests if required
-	runTests();
+	//runTests();
 	
 	// Initialize default parameters
-	std::string sceneName = "cornell-box";
-	//std::string sceneName = "MaterialsScene";
+	//std::string sceneName = "bathroom";
+	//std::string sceneName = "cornell-box";
+	std::string sceneName = "MaterialsScene";
 	std::string filename = "GI.hdr";
 	unsigned int SPP = 8192; //samples per pixel
 

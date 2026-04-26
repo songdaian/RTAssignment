@@ -224,10 +224,6 @@ public:
 	unsigned int height;
 	int SPP;
 	ImageFilter* filter;
-	//void splat(const float x, const float y, const Colour& L)
-	//{
-	//	// Code to splat a smaple with colour L into the image plane using an ImageFilter
-	//}
 	void splat(const float x, const float y, const Colour& L) {
 		float filterWeights[25]; // Storage to cache weights
 		unsigned int indices[25]; // Store indices to minimize computations
@@ -262,11 +258,10 @@ public:
 		return ((x * (A * x + C * B) + D * E) /
 			(x * (A * x + B) + D * F)) - (E / F);
 	}
-
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f)
 	{
 		//filmic
-		Colour c = film[y * width + x];
+		Colour c = film[y * width + x] / (float)SPP;
 		c.r = filmicFuncC(c.r);
 		c.g = filmicFuncC(c.g);
 		c.b = filmicFuncC(c.b);
@@ -285,7 +280,6 @@ public:
 		r = (unsigned char)(c.r * 255.0f);
 		g = (unsigned char)(c.g * 255.0f);
 		b = (unsigned char)(c.b * 255.0f);
-		// Return a tonemapped pixel at coordinates x, y
 	}
 	// Do not change any code below this line
 	void init(int _width, int _height, ImageFilter* _filter)
