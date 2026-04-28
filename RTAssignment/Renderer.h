@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <mutex>
 #include <condition_variable>
+#include<OpenImageDenoise/oidn.hpp>
 
 class RayTracer
 {
@@ -35,6 +36,10 @@ public:
 	unsigned int totalTiles = 0;
 	unsigned int numTilesX = 0;
 	const unsigned int tileSize = 32;
+
+	// for denoising
+	std::vector<Colour> albedoBuffer;
+	std::vector<Colour> normalBuffer;
 
 	~RayTracer()
 	{
@@ -76,6 +81,10 @@ public:
 				threads[i] = new std::thread(&RayTracer::workerLoop, this, i);
 			}
 		}
+
+		albedoBuffer.resize(scene->camera.width * scene->camera.height);
+		normalBuffer.resize(scene->camera.width * scene->camera.height);
+
 		clear();
 	}
 	void clear()
@@ -150,6 +159,15 @@ public:
 		Colour L(0.0f, 0.0f, 0.0f);
 		if (shadingData.bsdf->isLight())
 		{
+			// Use the original (unflipped) triangle normal to check if we hit from the back.
+			// shadingData.gNormal is unreliable here because calculateShadingData flips it
+			// for two-sided materials, making backface hits look like frontface hits.
+			Vec3 originalNormal = scene->triangles[intersection.ID].gNormal();
+			if (Dot(shadingData.wo, originalNormal) < 0)
+			{
+				// Ray hit the back side of the area light — no emission
+				return Colour(0.0f, 0.0f, 0.0f);
+			}
 			//hit light
 			Colour L_em = shadingData.bsdf->emit(shadingData, shadingData.wo);
 			float wd = 1.0f;
@@ -198,6 +216,11 @@ public:
 		{
 			if (shadingData.bsdf->isLight())
 			{
+				Vec3 originalNormal = scene->triangles[intersection.ID].gNormal();
+				if (Dot(shadingData.wo, originalNormal) < 0)
+				{
+					return Colour(0.0f, 0.0f, 0.0f);
+				}
 				return shadingData.bsdf->emit(shadingData, shadingData.wo);
 			}
 			return computeDirect(shadingData, sampler);
@@ -274,6 +297,10 @@ public:
 						//Colour col = direct(ray, &samplers[threadId]);
 
 						film->splat(px, py, col);
+						// for denoising
+						int idx = y * film->width + x;
+						albedoBuffer[idx] = albedo(ray);
+						normalBuffer[idx] = viewNormals(ray);
 					}
 				}
 			}
@@ -308,8 +335,66 @@ public:
 			doneCV.wait(lock, [this]() { return activeWorkers == 0; });
 		}
 
-		// Apply tonemapping and draw to canvas after all workers have finished
-		// This prevents artifacts from partial 5x5 filter splatting.
+		for (unsigned int y = 0; y < film->height; y++)
+		{
+			for (unsigned int x = 0; x < film->width; x++)
+			{
+				unsigned char r, g, b;
+				film->tonemap(x, y, r, g, b);
+				canvas->draw(x, y, r, g, b);
+			}
+		}
+	}
+	void denoise() {
+		int width = film->width;
+		int height = film->height;
+		int numPixels = width * height;
+		size_t bufferSize = numPixels * 3 * sizeof(float);
+		float invSPP = 1.0f / (float)film->SPP;
+		oidn::DeviceRef device = oidn::newDevice();
+		device.commit();
+		oidn::BufferRef colorBuf = device.newBuffer(bufferSize);
+		oidn::BufferRef albedoBuf = device.newBuffer(bufferSize);
+		oidn::BufferRef normalBuf = device.newBuffer(bufferSize);
+		oidn::BufferRef outputBuf = device.newBuffer(bufferSize);
+		oidn::FilterRef filter = device.newFilter("RT");
+
+		filter.setImage("color", colorBuf, oidn::Format::Float3, width, height);
+		filter.setImage("albedo", albedoBuf, oidn::Format::Float3, width, height);
+		filter.setImage("normal", normalBuf, oidn::Format::Float3, width, height);
+		filter.setImage("output", outputBuf, oidn::Format::Float3, width, height);
+
+		filter.set("hdr", true);
+		filter.commit();
+
+		// fill the input image buffers copy from film, dividing by SPP
+		float* colorPtr = (float*)colorBuf.getData();
+		float* a = (float*)albedoBuf.getData();
+		float* n = (float*)normalBuf.getData();
+		for (int i = 0; i < numPixels; i++) {
+			colorPtr[3 * i + 0] = film->film[i].r * invSPP;
+			colorPtr[3 * i + 1] = film->film[i].g * invSPP;
+			colorPtr[3 * i + 2] = film->film[i].b * invSPP;
+			a[3 * i + 0] = albedoBuffer[i].r;
+			a[3 * i + 1] = albedoBuffer[i].g;
+			a[3 * i + 2] = albedoBuffer[i].b;
+			n[3 * i + 0] = normalBuffer[i].r;
+			n[3 * i + 1] = normalBuffer[i].g;
+			n[3 * i + 2] = normalBuffer[i].b;
+		}
+		filter.execute();
+
+		float* out = (float*)outputBuf.getData();
+
+		for (int i = 0; i < numPixels; i++)
+		{
+			film->film[i].r = out[3 * i + 0] * film->SPP;
+			film->film[i].g = out[3 * i + 1] * film->SPP;
+			film->film[i].b = out[3 * i + 2] * film->SPP;
+		}
+	}
+	void redrawFilmToCanvas()
+	{
 		for (unsigned int y = 0; y < film->height; y++)
 		{
 			for (unsigned int x = 0; x < film->width; x++)
