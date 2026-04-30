@@ -38,8 +38,8 @@ public:
 	const unsigned int tileSize = 32;
 
 	// for denoising
-	std::vector<Colour> albedoBuffer;
-	std::vector<Colour> normalBuffer;
+	//std::vector<Colour> albedoBuffer;
+	//std::vector<Colour> normalBuffer;
 
 	~RayTracer()
 	{
@@ -82,8 +82,8 @@ public:
 			}
 		}
 
-		albedoBuffer.resize(scene->camera.width * scene->camera.height);
-		normalBuffer.resize(scene->camera.width * scene->camera.height);
+		//albedoBuffer.resize(scene->camera.width * scene->camera.height);
+		//normalBuffer.resize(scene->camera.width * scene->camera.height);
 
 		clear();
 	}
@@ -160,8 +160,6 @@ public:
 		if (shadingData.bsdf->isLight())
 		{
 			// Use the original (unflipped) triangle normal to check if we hit from the back.
-			// shadingData.gNormal is unreliable here because calculateShadingData flips it
-			// for two-sided materials, making backface hits look like frontface hits.
 			Vec3 originalNormal = scene->triangles[intersection.ID].gNormal();
 			if (Dot(shadingData.wo, originalNormal) < 0)
 			{
@@ -207,6 +205,81 @@ public:
 			L = L + pathTrace(nextRay, pathThroughput, depth+1, sampler, shadingData.bsdf->isPureSpecular() ? 0.0f : pdf);
 		}
 		return L;
+	}
+	void splatToCamera(Vec3 p, Vec3 n, Colour col)
+	{
+		// FOV visible
+		float x, y;
+		if (!scene->camera.projectOntoCamera(p, x, y)) return;
+		// occlusion visible
+		if (!scene->visible(p, scene->camera.origin)) return;
+		//surface faces the camera
+		Vec3 toCamera = scene->camera.origin - p;
+		if (Dot(n, toCamera) <= 0.0f) return;
+
+		Vec3 cameraToP = -toCamera.normalize();
+		float cosTheta = Dot(scene->camera.viewDirection, cameraToP);
+		float cos2Theta = cosTheta * cosTheta;
+		float cos4Theta = cos2Theta * cos2Theta;
+		float We = 1.0f / (scene->camera.Afilm * cos4Theta);
+		float G_term = Dot(n, toCamera.normalize()) * cosTheta / Dot(toCamera, toCamera);
+		Colour splatCol = col * We * G_term;
+		film->splat(x, y, splatCol);
+	}
+	void lightTrace(Sampler* sampler)
+	{
+		float pmfLights;
+		Light* light = scene->sampleLight(sampler, pmfLights);
+		float pdfPosition, pdfDirection;
+		Vec3 p = light->samplePositionFromLight(sampler, pdfPosition);
+		Vec3 wi = light->sampleDirectionFromLight(sampler, pdfDirection);
+		Colour Le = light->evaluate(-wi);
+		ShadingData sd;//dummy
+		Vec3 lightNormal = light->normal(sd, wi);
+
+		if (light->isArea())
+		{
+			Colour colCamera = Le / (pdfPosition * pmfLights);
+			splatToCamera(p, lightNormal, colCamera);
+		}
+
+		Colour pathThroughput = Le * fabsf(Dot(wi, lightNormal)) / (pdfPosition * pdfDirection * pmfLights);
+		Ray r(p + wi * EPSILON, wi);
+		lightTracePath(r, pathThroughput, Le, sampler);
+
+	}
+	void lightTracePath(Ray& r, Colour pathThroughput, Colour Le, Sampler* sampler, int depth = 0)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t >= FLT_MAX) return;
+		if (shadingData.bsdf->isLight()) return; // hit a light, stop
+
+		if (!shadingData.bsdf->isPureSpecular())
+		{
+			// Direction from hit point to camera
+			Vec3 toCamera = (scene->camera.origin - shadingData.x).normalize();
+			Colour bsdfVal = shadingData.bsdf->evaluate(shadingData, toCamera);
+			// col = pathThroughput * bsdf(wo, wCam)
+			splatToCamera(shadingData.x, shadingData.sNormal, pathThroughput * bsdfVal);
+		}
+
+		float probRR = 1.0f;
+		if (depth > 3)
+		{
+			probRR = 0.9f;
+			if (sampler->next() > probRR) return;
+		}
+
+		Colour bsdfSampleVal;
+		float pdf;
+		Vec3 wi = shadingData.bsdf->sample(shadingData, sampler, bsdfSampleVal, pdf);
+		if (pdf > 0.0f)//to avoid nan currently, but should check in sample function
+		{
+			pathThroughput = pathThroughput * bsdfSampleVal * fabsf(Dot(wi, shadingData.sNormal)) / (pdf * probRR);
+			Ray nextRay(shadingData.x + wi * EPSILON, wi);
+			lightTracePath(nextRay, pathThroughput, Le, sampler, depth + 1);
+		}
 	}
 	Colour direct(Ray& r, Sampler* sampler)
 	{
@@ -290,17 +363,20 @@ public:
 					{
 						float px = x + 0.5f;
 						float py = y + 0.5f;
-						Ray ray = scene->camera.generateRay(px, py);
-						
-						Colour pt(1.0f, 1.0f, 1.0f);
-						Colour col = pathTrace(ray, pt, 0, &samplers[threadId]);
-						//Colour col = direct(ray, &samplers[threadId]);
 
-						film->splat(px, py, col);
-						// for denoising
-						int idx = y * film->width + x;
-						albedoBuffer[idx] = albedo(ray);
-						normalBuffer[idx] = viewNormals(ray);
+						// === Light Tracing mode (replaces path tracing) ===
+						lightTrace(&samplers[threadId]);
+
+						//=== Path Tracing mode (comment out lightTrace above and uncomment below) ===
+						//Ray ray = scene->camera.generateRay(px, py);						
+						//Colour pt(1.0f, 1.0f, 1.0f);
+						//Colour col = pathTrace(ray, pt, 0, &samplers[threadId]);
+						//film->splat(px, py, col);
+
+						// === for denoising ===
+						//int idx = y * film->width + x;
+						//albedoBuffer[idx] = albedo(ray);
+						//normalBuffer[idx] = viewNormals(ray);
 					}
 				}
 			}
@@ -345,54 +421,54 @@ public:
 			}
 		}
 	}
-	void denoise() {
-		int width = film->width;
-		int height = film->height;
-		int numPixels = width * height;
-		size_t bufferSize = numPixels * 3 * sizeof(float);
-		float invSPP = 1.0f / (float)film->SPP;
-		oidn::DeviceRef device = oidn::newDevice();
-		device.commit();
-		oidn::BufferRef colorBuf = device.newBuffer(bufferSize);
-		oidn::BufferRef albedoBuf = device.newBuffer(bufferSize);
-		oidn::BufferRef normalBuf = device.newBuffer(bufferSize);
-		oidn::BufferRef outputBuf = device.newBuffer(bufferSize);
-		oidn::FilterRef filter = device.newFilter("RT");
+	//void denoise() {
+	//	int width = film->width;
+	//	int height = film->height;
+	//	int numPixels = width * height;
+	//	size_t bufferSize = numPixels * 3 * sizeof(float);
+	//	float invSPP = 1.0f / (float)film->SPP;
+	//	oidn::DeviceRef device = oidn::newDevice();
+	//	device.commit();
+	//	oidn::BufferRef colorBuf = device.newBuffer(bufferSize);
+	//	oidn::BufferRef albedoBuf = device.newBuffer(bufferSize);
+	//	oidn::BufferRef normalBuf = device.newBuffer(bufferSize);
+	//	oidn::BufferRef outputBuf = device.newBuffer(bufferSize);
+	//	oidn::FilterRef filter = device.newFilter("RT");
 
-		filter.setImage("color", colorBuf, oidn::Format::Float3, width, height);
-		filter.setImage("albedo", albedoBuf, oidn::Format::Float3, width, height);
-		filter.setImage("normal", normalBuf, oidn::Format::Float3, width, height);
-		filter.setImage("output", outputBuf, oidn::Format::Float3, width, height);
+	//	filter.setImage("color", colorBuf, oidn::Format::Float3, width, height);
+	//	filter.setImage("albedo", albedoBuf, oidn::Format::Float3, width, height);
+	//	filter.setImage("normal", normalBuf, oidn::Format::Float3, width, height);
+	//	filter.setImage("output", outputBuf, oidn::Format::Float3, width, height);
 
-		filter.set("hdr", true);
-		filter.commit();
+	//	filter.set("hdr", true);
+	//	filter.commit();
 
-		// fill the input image buffers copy from film, dividing by SPP
-		float* colorPtr = (float*)colorBuf.getData();
-		float* a = (float*)albedoBuf.getData();
-		float* n = (float*)normalBuf.getData();
-		for (int i = 0; i < numPixels; i++) {
-			colorPtr[3 * i + 0] = film->film[i].r * invSPP;
-			colorPtr[3 * i + 1] = film->film[i].g * invSPP;
-			colorPtr[3 * i + 2] = film->film[i].b * invSPP;
-			a[3 * i + 0] = albedoBuffer[i].r;
-			a[3 * i + 1] = albedoBuffer[i].g;
-			a[3 * i + 2] = albedoBuffer[i].b;
-			n[3 * i + 0] = normalBuffer[i].r;
-			n[3 * i + 1] = normalBuffer[i].g;
-			n[3 * i + 2] = normalBuffer[i].b;
-		}
-		filter.execute();
+	//	// fill the input image buffers copy from film, dividing by SPP
+	//	float* colorPtr = (float*)colorBuf.getData();
+	//	float* a = (float*)albedoBuf.getData();
+	//	float* n = (float*)normalBuf.getData();
+	//	for (int i = 0; i < numPixels; i++) {
+	//		colorPtr[3 * i + 0] = film->film[i].r * invSPP;
+	//		colorPtr[3 * i + 1] = film->film[i].g * invSPP;
+	//		colorPtr[3 * i + 2] = film->film[i].b * invSPP;
+	//		a[3 * i + 0] = albedoBuffer[i].r;
+	//		a[3 * i + 1] = albedoBuffer[i].g;
+	//		a[3 * i + 2] = albedoBuffer[i].b;
+	//		n[3 * i + 0] = normalBuffer[i].r;
+	//		n[3 * i + 1] = normalBuffer[i].g;
+	//		n[3 * i + 2] = normalBuffer[i].b;
+	//	}
+	//	filter.execute();
 
-		float* out = (float*)outputBuf.getData();
+	//	float* out = (float*)outputBuf.getData();
 
-		for (int i = 0; i < numPixels; i++)
-		{
-			film->film[i].r = out[3 * i + 0] * film->SPP;
-			film->film[i].g = out[3 * i + 1] * film->SPP;
-			film->film[i].b = out[3 * i + 2] * film->SPP;
-		}
-	}
+	//	for (int i = 0; i < numPixels; i++)
+	//	{
+	//		film->film[i].r = out[3 * i + 0] * film->SPP;
+	//		film->film[i].g = out[3 * i + 1] * film->SPP;
+	//		film->film[i].b = out[3 * i + 2] * film->SPP;
+	//	}
+	//}
 	void redrawFilmToCanvas()
 	{
 		for (unsigned int y = 0; y < film->height; y++)

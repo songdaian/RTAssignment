@@ -399,3 +399,11 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# scenes
+bathroom/
+car2/
+coffee/
+kitchen/
+pictures/
+materialball/

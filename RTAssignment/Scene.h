@@ -25,10 +25,9 @@ public:
 		inverseProjectionMatrix = ProjectionMatrix.invert();
 		width = (float)screenwidth;
 		height = (float)screenheight;
-		float Wlens = (2.0f / ProjectionMatrix.a[1][1]);
-		float aspect = ProjectionMatrix.a[0][0] / ProjectionMatrix.a[1][1];
-		float Hlens = Wlens * aspect;
-		Afilm = Wlens * Hlens;
+		float hLens = (2.0f / ProjectionMatrix.a[1][1]);
+		float wLens = (2.0f / ProjectionMatrix.a[0][0]);
+		Afilm = wLens * hLens;
 	}
 	void updateView(Matrix V)
 	{

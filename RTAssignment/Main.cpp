@@ -24,8 +24,8 @@ int main(int argc, char *argv[])
 	//std::string sceneName = "kitchen";
 	//std::string sceneName = "coffee";
 	//std::string sceneName = "car2";
-	std::string filename = "LSBR.hdr";
-	unsigned int SPP = 16; //samples per pixel
+	std::string filename = "TEST.hdr";
+	unsigned int SPP = 8192; //samples per pixel
 
 	if (argc > 1)
 	{
@@ -126,17 +126,18 @@ int main(int argc, char *argv[])
 			std::string ldrFilename = filename.substr(0, pos) + ".png";
 			rt.savePNG(ldrFilename);
 		}
-		if (SPP == rt.getSPP())
-		{
-			size_t pos = filename.find_last_of('.');
-			std::string ldrFilename = filename.substr(0, pos) + ".png";
-			rt.savePNG(ldrFilename);
-			rt.denoise();
-			rt.redrawFilmToCanvas();
-			ldrFilename = filename.substr(0, pos) + "dn.png";
-			rt.savePNG(ldrFilename);
-			break;
-		}
+		// for denoise
+		//if (SPP == rt.getSPP())
+		//{
+		//	size_t pos = filename.find_last_of('.');
+		//	std::string ldrFilename = filename.substr(0, pos) + ".png";
+		//	rt.savePNG(ldrFilename);
+		//	rt.denoise();
+		//	rt.redrawFilmToCanvas();
+		//	ldrFilename = filename.substr(0, pos) + "dn.png";
+		//	rt.savePNG(ldrFilename);
+		//	break;
+		//}
 		if (SPP == rt.getSPP())
 		{
 			rt.saveHDR(filename);
