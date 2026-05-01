@@ -16,6 +16,13 @@
 #include <condition_variable>
 #include<OpenImageDenoise/oidn.hpp>
 
+class VPL
+{
+public:
+	ShadingData shadingData;
+	Colour Le;
+};
+
 class RayTracer
 {
 public:
@@ -25,6 +32,7 @@ public:
 	MTRandom *samplers = nullptr;
 	std::thread **threads = nullptr;
 	int numProcs = 0;
+	std::vector<VPL> vpls;
 	
 	std::mutex syncMutex;
 	std::condition_variable startCV;
@@ -326,6 +334,121 @@ public:
 		}
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
+	void generateVPLs(int numPaths)
+	{
+		vpls.clear();
+		if (scene->lights.size() == 0) return;
+
+		for (int i = 0; i < numPaths; i++)
+		{
+			float pmfLights;
+			Light* light = scene->sampleLight(&samplers[0], pmfLights);
+			float pdfPosition, pdfDirection;
+			Vec3 p = light->samplePositionFromLight(&samplers[0], pdfPosition);
+			Vec3 wi = light->sampleDirectionFromLight(&samplers[0], pdfDirection);
+			Colour Le = light->evaluate(-wi);
+			ShadingData dummy;
+			Vec3 lightNormal = light->normal(dummy, wi);
+			
+			//generate vpl on the light
+			VPL lightVPL;
+			lightVPL.shadingData = ShadingData(p, lightNormal);
+			lightVPL.Le = Le / (pdfPosition * pmfLights * numPaths);
+			vpls.push_back(lightVPL);
+
+			Colour pathThroughput = lightVPL.Le * Dot(wi, lightNormal) / pdfDirection;
+			Ray r(p + wi * EPSILON, wi);
+			traceVPL(r, pathThroughput, &samplers[0], 0);
+		}
+	}
+	void traceVPL(Ray& r, Colour pathThroughput, Sampler* sampler, int depth)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t >= FLT_MAX) return;
+		if (shadingData.bsdf->isLight()) return;
+
+		if (!shadingData.bsdf->isPureSpecular())
+		{
+			VPL vpl;
+			vpl.shadingData = shadingData;
+			vpl.Le = pathThroughput;
+			vpls.push_back(vpl);
+		}
+
+		float probRR = 1.0f;
+		if (depth > 3)
+		{
+			probRR = 0.9f;
+			if (sampler->next() > probRR) return;
+		}
+
+		Colour bsdfSampleVal;
+		float pdf;
+		Vec3 wi = shadingData.bsdf->sample(shadingData, sampler, bsdfSampleVal, pdf);
+		if (pdf > 0.0f)
+		{
+			Colour nextPathThroughput = pathThroughput * bsdfSampleVal * fabsf(Dot(wi, shadingData.sNormal)) / (pdf * probRR);
+			Ray nextRay(shadingData.x + wi * EPSILON, wi);
+			traceVPL(nextRay, nextPathThroughput, sampler, depth + 1);
+		}
+	}
+	Colour instantRadiosity(Ray& r, Sampler* sampler, int depth = 0)
+	{
+		IntersectionData intersection = scene->traverse(r);
+		ShadingData shadingData = scene->calculateShadingData(intersection, r);
+		if (shadingData.t >= FLT_MAX)
+		{
+			return scene->background->evaluate(r.dir);
+		}
+		if (shadingData.bsdf->isLight())
+		{
+			Vec3 originalNormal = scene->triangles[intersection.ID].gNormal();
+			if (Dot(shadingData.wo, originalNormal) < 0) return Colour(0.0f, 0.0f, 0.0f);
+			return shadingData.bsdf->emit(shadingData, shadingData.wo);
+		}
+		Colour L(0.0f, 0.0f, 0.0f);
+		if (shadingData.bsdf->isPureSpecular())
+		{
+			if (depth > 5) return L; // to avoid bouncing between specular surfaces
+			Colour bsdfSampleVal;
+			float pdf;
+			Vec3 wi = shadingData.bsdf->sample(shadingData, sampler, bsdfSampleVal, pdf);
+			if (pdf > 0.0f)
+			{
+				Ray nextRay(shadingData.x + wi * EPSILON, wi);
+				L = instantRadiosity(nextRay, sampler, depth + 1) * bsdfSampleVal * fabsf(Dot(wi, shadingData.sNormal)) / pdf;
+			}
+			return L;
+		}
+
+		for (int i = 0; i < vpls.size(); i++)
+		{
+			VPL vpl = vpls[i];
+			if (!scene->visible(shadingData.x, vpl.shadingData.x)) {
+				continue;
+			}
+			Vec3 dir = vpl.shadingData.x - shadingData.x;
+			float distSq = Dot(dir, dir);
+			dir = dir.normalize();
+			float cosTheta1 = Dot(shadingData.sNormal, dir);
+			float cosTheta2 = Dot(vpl.shadingData.sNormal, -dir);
+			if (cosTheta1 < 1e-6f || cosTheta2 < 1e-6f)
+			{
+				continue;
+			}
+			Colour fr = shadingData.bsdf->evaluate(shadingData, dir);
+			Colour vpl_fr(1.0f, 1.0f, 1.0f); //for vpl on light source
+			if (vpl.shadingData.bsdf != nullptr)
+			{
+				vpl_fr = vpl.shadingData.bsdf->evaluate(vpl.shadingData, -dir);
+			}
+					
+			float G_term = cosTheta1 * cosTheta2 / distSq;
+			L = L + vpl_fr * G_term * fr * vpl.Le;
+		}
+		return L;
+	}
 	void workerLoop(int threadId)
 	{
 		int myGeneration = 0;
@@ -364,14 +487,19 @@ public:
 						float px = x + 0.5f;
 						float py = y + 0.5f;
 
-						// === Light Tracing mode (replaces path tracing) ===
-						lightTrace(&samplers[threadId]);
-
-						//=== Path Tracing mode (comment out lightTrace above and uncomment below) ===
+						// === Instant Radiosity mode ===
 						//Ray ray = scene->camera.generateRay(px, py);						
-						//Colour pt(1.0f, 1.0f, 1.0f);
-						//Colour col = pathTrace(ray, pt, 0, &samplers[threadId]);
+						//Colour col = instantRadiosity(ray, &samplers[threadId]);
 						//film->splat(px, py, col);
+
+						// === Light Tracing mode ===
+						//lightTrace(&samplers[threadId]);
+
+						//=== Path Tracing mode ===
+						Ray ray = scene->camera.generateRay(px, py);						
+						Colour pt(1.0f, 1.0f, 1.0f);
+						Colour col = pathTrace(ray, pt, 0, &samplers[threadId]);
+						film->splat(px, py, col);
 
 						// === for denoising ===
 						//int idx = y * film->width + x;
@@ -393,6 +521,8 @@ public:
 	void render()
 	{
 		film->incrementSPP();
+
+		generateVPLs(1024);
 
 		numTilesX = (film->width + tileSize - 1) / tileSize;
 		unsigned int numTilesY = (film->height + tileSize - 1) / tileSize;

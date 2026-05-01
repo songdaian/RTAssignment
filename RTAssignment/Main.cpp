@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 	//std::string sceneName = "kitchen";
 	//std::string sceneName = "coffee";
 	//std::string sceneName = "car2";
-	std::string filename = "TEST.hdr";
+	std::string filename = "pathTracing.hdr";
 	unsigned int SPP = 8192; //samples per pixel
 
 	if (argc > 1)
@@ -140,6 +140,9 @@ int main(int argc, char *argv[])
 		//}
 		if (SPP == rt.getSPP())
 		{
+			size_t pos = filename.find_last_of('.');
+			std::string ldrFilename = filename.substr(0, pos) + ".png";
+			rt.savePNG(ldrFilename);
 			rt.saveHDR(filename);
 			break;
 		}
