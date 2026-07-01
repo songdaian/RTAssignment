@@ -110,7 +110,14 @@ public:
 	}
 	Light* sampleLight(Sampler* sampler, float& pmf)
 	{
-		int idx = std::floor(sampler->next() * lights.size());
+		if (lights.empty())
+		{
+			pmf = 0.0f;
+			return nullptr;
+		}
+		const size_t idx = std::min(
+			static_cast<size_t>(sampler->next() * lights.size()),
+			lights.size() - 1);
 		pmf = 1.f / lights.size();
 		return lights[idx];
 	}

@@ -38,4 +38,23 @@ Several functions and algorithms are left incomplete and require implementation.
 - Ensure your implementations are efficient and well-commented.
 - Test incremental changes using appropriate scenes.
 - Working on Mac for development/testing.
+
+## macOS / Xcode
+
+The source now builds on both Windows and macOS. Windows can continue using the existing Visual Studio solution, while macOS uses CMake to generate an Xcode project with a Metal-backed `GamesEngineeringBase` window.
+
+Install CMake if you do not already have it:
+
+```bash
+brew install cmake
+```
+
+Generate and open the Xcode project:
+
+```bash
+cmake -S . -B build-xcode -G Xcode
+open build-xcode/RTAssignment.xcodeproj
+```
+
+In Xcode, select the `RTAssignment` scheme and run. The generated scheme uses the project folder as its working directory so scene folders such as `cornell-box` are found correctly.
   

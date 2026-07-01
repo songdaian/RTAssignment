@@ -7,6 +7,7 @@
 #include <memory.h>
 #include <vector>
 #include <algorithm>
+#include <cfloat>
 
 // Stop warnings about M_PI being a double
 #pragma warning( disable : 4244)

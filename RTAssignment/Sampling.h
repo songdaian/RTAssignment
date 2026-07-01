@@ -3,6 +3,7 @@
 #include "Core.h"
 #include <random>
 #include <algorithm>
+#include <cmath>
 
 class Sampler
 {
@@ -15,7 +16,7 @@ class MTRandom : public Sampler
 public:
 	std::mt19937 generator;
 	std::uniform_real_distribution<float> dist;
-	MTRandom(unsigned int seed = 1) : dist(0.0f, 1.0f)
+	MTRandom(unsigned int seed = 1) : dist(0.0f, std::nextafter(1.0f, 0.0f))
 	{
 		generator.seed(seed);
 	}

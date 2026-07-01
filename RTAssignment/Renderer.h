@@ -14,7 +14,9 @@
 #include <algorithm>
 #include <mutex>
 #include <condition_variable>
-#include<OpenImageDenoise/oidn.hpp>
+#if defined(_WIN32) && __has_include(<OpenImageDenoise/oidn.hpp>)
+#include <OpenImageDenoise/oidn.hpp>
+#endif
 
 class VPL
 {
@@ -77,9 +79,7 @@ public:
 		film = new Film();
 		//film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new BoxFilter());
 		film->init((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, new MitchellNetravaliFilter());
-		SYSTEM_INFO sysInfo;
-		GetSystemInfo(&sysInfo);
-		numProcs = sysInfo.dwNumberOfProcessors;
+		numProcs = static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
 		
 		if (threads == nullptr) {
 			threads = new std::thread*[numProcs];
@@ -102,7 +102,7 @@ public:
 	Colour computeDirect(ShadingData shadingData, Sampler* sampler)
 	{
 		// If surface is specular we cannot computing direct lighting
-		if (shadingData.bsdf->isPureSpecular() == true)
+		if (shadingData.bsdf->isPureSpecular() == true || scene->lights.empty())
 		{
 			return Colour(0.0f, 0.0f, 0.0f);
 		}

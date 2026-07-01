@@ -24,6 +24,8 @@ SOFTWARE.
 
 #pragma once
 
+#if defined(_WIN32)
+
 // Include necessary Windows and DirectX headers
 #define NOMINMAX
 #include <Windows.h>
@@ -1362,3 +1364,178 @@ namespace GamesEngineeringBase
 	};
 
 }
+
+#elif defined(__APPLE__)
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+#include <map>
+#include <string>
+
+#ifndef VK_ESCAPE
+#define VK_ESCAPE 27
+#endif
+
+namespace GamesEngineeringBase
+{
+	enum MouseButton
+	{
+		MouseLeft = 0,
+		MouseMiddle = 1,
+		MouseRight = 2
+	};
+
+	enum MouseButtonState
+	{
+		MouseUp = 0,
+		MouseDown = 1,
+		MousePressed = 2
+	};
+
+	class Window
+	{
+	private:
+		void* impl = nullptr;
+		unsigned char* image = nullptr;
+		bool keys[256] = {};
+		int mousex = 0;
+		int mousey = 0;
+		MouseButtonState buttonStates[3] = { MouseUp, MouseUp, MouseUp };
+		int mouseWheel = 0;
+		unsigned int width = 0;
+		unsigned int height = 0;
+
+	public:
+		Window() = default;
+		Window(const Window&) = delete;
+		Window& operator=(const Window&) = delete;
+
+		void create(unsigned int window_width, unsigned int window_height, const std::string window_name, bool window_fullscreen = false, int window_x = 0, int window_y = 0);
+		void checkInput();
+		unsigned char* backBuffer() const;
+		void draw(int x, int y, unsigned char r, unsigned char g, unsigned char b);
+		void draw(int pixelIndex, unsigned char r, unsigned char g, unsigned char b);
+		void draw(int x, int y, unsigned char* pixel);
+		void clear();
+		void present();
+		unsigned int getWidth() const;
+		unsigned int getHeight() const;
+		unsigned char* getBackBuffer() const;
+		bool keyPressed(int key) const;
+		bool mouseButtonPressed(MouseButton button) const;
+		MouseButtonState mouseButtonState(MouseButton button) const;
+		int getMouseX() const;
+		int getMouseY() const;
+		int getMouseWheel() const;
+		void resetMouseWheelPosition();
+		int getMouseInWindowX() const;
+		int getMouseInWindowY() const;
+		void clipMouseToWindow() const;
+		~Window();
+
+		void setKeyState(int key, bool pressed);
+		void setMousePosition(int x, int y);
+		void setMouseButtonState(MouseButton button, MouseButtonState state);
+		void addMouseWheelDelta(int delta);
+	};
+
+	class Sound
+	{
+	public:
+		bool loadWAV(void*, std::string) { return false; }
+		void play() {}
+		void playMusic() {}
+	};
+
+	class SoundManager
+	{
+	public:
+		void load(std::string) {}
+		void play(std::string) {}
+		void loadMusic(std::string) {}
+		void playMusic() {}
+	};
+
+	class Timer
+	{
+	private:
+		std::chrono::high_resolution_clock::time_point start;
+
+	public:
+		Timer() { reset(); }
+		void reset() { start = std::chrono::high_resolution_clock::now(); }
+		float dt()
+		{
+			const auto cur = std::chrono::high_resolution_clock::now();
+			const std::chrono::duration<float> value = cur - start;
+			reset();
+			return value.count();
+		}
+	};
+
+	class Image
+	{
+	public:
+		unsigned int width = 0;
+		unsigned int height = 0;
+		unsigned int channels = 0;
+		unsigned char* data = nullptr;
+
+		Image() = default;
+		Image(Image&& other);
+		Image& operator=(Image&& other);
+		Image(const Image&) = delete;
+		Image& operator=(const Image&) = delete;
+
+		bool load(std::string filename);
+		unsigned char* at(const unsigned int x, const unsigned int y) const;
+		unsigned char alphaAt(const unsigned int x, const unsigned int y) const;
+		unsigned char at(const unsigned int x, const unsigned int y, const unsigned int index) const;
+		unsigned char* atUnchecked(const unsigned int x, const unsigned int y) const;
+		unsigned char alphaAtUnchecked(const unsigned int x, const unsigned int y) const;
+		bool hasAlpha() const;
+		void free();
+		~Image();
+	};
+
+	class XBoxController
+	{
+	public:
+		XBoxController() = default;
+		void activate(int) {}
+		void deactivate() {}
+		void update() {}
+		bool upPressed() { return false; }
+		bool downPressed() { return false; }
+		bool leftPressed() { return false; }
+		bool rightPressed() { return false; }
+		bool startPressed() { return false; }
+		bool backPressed() { return false; }
+		bool lThumbPressed() { return false; }
+		bool rThumbPressed() { return false; }
+		bool lShoulderPressed() { return false; }
+		bool rShoulderPressed() { return false; }
+		bool APressed() { return false; }
+		bool BPressed() { return false; }
+		bool XPressed() { return false; }
+		bool YPressed() { return false; }
+		void vibrate(float, float) {}
+		int getID() { return -1; }
+	};
+
+	class XBoxControllers
+	{
+	public:
+		XBoxControllers() = default;
+		XBoxController getPlayerController(int) { return XBoxController(); }
+		XBoxController getFirstPlayerController() { return XBoxController(); }
+		bool hasController() { return false; }
+		void probeControllers() {}
+	};
+}
+
+#else
+#error "GamesEngineeringBase currently supports Windows and macOS."
+#endif
