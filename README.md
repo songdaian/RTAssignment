@@ -37,4 +37,5 @@ Several functions and algorithms are left incomplete and require implementation.
 
 - Ensure your implementations are efficient and well-commented.
 - Test incremental changes using appropriate scenes.
+- Working on Mac for development/testing.
   
