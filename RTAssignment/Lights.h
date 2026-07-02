@@ -7,13 +7,6 @@
 
 #pragma warning( disable : 4244)
 
-class SceneBounds
-{
-public:
-	Vec3 sceneCentre;
-	float sceneRadius;
-};
-
 class Light
 {
 public:
@@ -23,8 +16,6 @@ public:
 	virtual bool isArea() = 0;
 	virtual Vec3 normal(const ShadingData& shadingData, const Vec3& wi) = 0;
 	virtual float totalIntegratedPower() = 0;
-	virtual Vec3 samplePositionFromLight(Sampler* sampler, float& pdf) = 0;
-	virtual Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf) = 0;
 };
 
 class AreaLight : public Light
@@ -60,19 +51,6 @@ public:
 	float totalIntegratedPower()
 	{
 		return (triangle->area * emission.Lum());
-	}
-	Vec3 samplePositionFromLight(Sampler* sampler, float& pdf)
-	{
-		return triangle->sample(sampler, pdf);
-	}
-	Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf)
-	{
-		// Cosine sampling
-		Vec3 wi = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
-		pdf = SamplingDistributions::cosineHemispherePDF(wi);
-		Frame frame;
-		frame.fromVector(triangle->gNormal());
-		return frame.toWorld(wi);
 	}
 };
 
@@ -110,20 +88,6 @@ public:
 	float totalIntegratedPower()
 	{
 		return emission.Lum() * 4.0f * M_PI;
-	}
-	Vec3 samplePositionFromLight(Sampler* sampler, float& pdf)
-	{
-		Vec3 p = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		p = p * use<SceneBounds>().sceneRadius;
-		p = p + use<SceneBounds>().sceneCentre;
-		pdf = 1.0f / (4 * M_PI * SQ(use<SceneBounds>().sceneRadius));
-		return p;
-	}
-	Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf)
-	{
-		Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		pdf = SamplingDistributions::uniformSpherePDF(wi);
-		return wi;
 	}
 };
 
@@ -263,32 +227,5 @@ public:
 		}
 		total = total / (float)(env->width * env->height);
 		return total * 4.0f * M_PI;
-	}
-	Vec3 samplePositionFromLight(Sampler* sampler, float& pdf)
-	{
-		// Samples a point on the bounding sphere of the scene. Feel free to improve this.
-		Vec3 p = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
-		p = p * use<SceneBounds>().sceneRadius;
-		p = p + use<SceneBounds>().sceneCentre;
-		pdf = 1.0f / (4 * M_PI * SQ(use<SceneBounds>().sceneRadius));
-		return p;
-	}
-	Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf)
-	{
-		float vSample = sampler->next();
-		float uSample = sampler->next();
-		int vIndex = std::upper_bound(marginalCDF.begin(), marginalCDF.end(), vSample) - marginalCDF.begin() - 1;
-		vIndex = std::min(std::max(vIndex, 0), env->height - 1);
-		int uIndex = std::upper_bound(conditionalCDF[vIndex].begin(), conditionalCDF[vIndex].end(), uSample) - conditionalCDF[vIndex].begin() - 1;
-		uIndex = std::min(std::max(uIndex, 0), env->width - 1);
-		float u = ((float)uIndex) / (float)env->width;
-		float v = ((float)vIndex) / (float)env->height;
-		float phi = u * 2.0f * M_PI;
-		float theta = v * M_PI;
-		float sinTheta = sinf(theta);
-		// direction into the scene
-		Vec3 wi = -Vec3(cosf(phi) * sinTheta, cosf(theta), sinf(phi) * sinTheta);
-		pdf = marginalPDF[vIndex] * conditionalPDF[vIndex][uIndex] * env->width * env->height / (2.0f * M_PI * M_PI * sinTheta);
-		return wi;
 	}
 };

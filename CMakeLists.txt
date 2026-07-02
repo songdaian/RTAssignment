@@ -46,11 +46,6 @@ if(MSVC)
 		WindowsCodecs
 		xinput
 	)
-	if(EXISTS "${CMAKE_SOURCE_DIR}/oidn-2.4.1.x64.windows/include/OpenImageDenoise/oidn.hpp")
-		target_include_directories(RTAssignment PRIVATE oidn-2.4.1.x64.windows/include)
-		target_link_directories(RTAssignment PRIVATE oidn-2.4.1.x64.windows/lib)
-		target_link_libraries(RTAssignment PRIVATE OpenImageDenoise OpenImageDenoise_core)
-	endif()
 endif()
 
 if(APPLE)

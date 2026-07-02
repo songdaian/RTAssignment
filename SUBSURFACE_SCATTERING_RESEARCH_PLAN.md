@@ -167,7 +167,7 @@ Missing components are:
 Before research measurements:
 
 - replace per-worker RNG use with deterministic streams derived from `(seed, pixel, sample, dimension/stream)`;
-- gate the current unconditional generation of 1,024 VPLs in `render()`, which would contaminate timings;
+- keep unrelated rendering modes out of the baseline so they cannot contaminate timings;
 - avoid the unfinished rough dielectric implementation and use one tested smooth dielectric boundary;
 - separate setup/precomputation time from sampling time and report both.
 
@@ -390,7 +390,7 @@ Negative covariance or very small `rho` is a valid result. With a fitted `beta`,
 - add headless method selection and batch output;
 - implement deterministic indexed sample streams;
 - add separate `F`, `C`, residual, covariance, timing, and event accumulators;
-- gate unrelated VPL work.
+- verify that only the path-tracing mode contributes work to measured renders.
 
 **Exit:** results are identical across repeated runs and thread counts.
 

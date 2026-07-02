@@ -1,5 +1,3 @@
-
-
 #include "GEMLoader.h"
 #include "Renderer.h"
 #include "SceneLoader.h"
@@ -7,22 +5,9 @@
 #include "GamesEngineeringBase.h"
 #include <unordered_map>
 
-void runTests()
-{
-	// Add test code here
-}
-
 int main(int argc, char *argv[])
 {
-	// Add call to tests if required
-	//runTests();
-	
-	// Initialize default parameters
-	std::string sceneName = "cornell-box";
-	//std::string sceneName = "MaterialsScene";
-	//std::string sceneName = "kitchen";
-	//std::string sceneName = "coffee";
-	//std::string sceneName = "car2";
+	std::string sceneName = "volumetric-cornell";
 	std::string filename = "pathTracing.hdr";
 	unsigned int SPP = 8192; //samples per pixel
 
@@ -125,18 +110,6 @@ int main(int argc, char *argv[])
 			std::string ldrFilename = filename.substr(0, pos) + ".png";
 			rt.savePNG(ldrFilename);
 		}
-		// for denoise
-		//if (SPP == rt.getSPP())
-		//{
-		//	size_t pos = filename.find_last_of('.');
-		//	std::string ldrFilename = filename.substr(0, pos) + ".png";
-		//	rt.savePNG(ldrFilename);
-		//	rt.denoise();
-		//	rt.redrawFilmToCanvas();
-		//	ldrFilename = filename.substr(0, pos) + "dn.png";
-		//	rt.savePNG(ldrFilename);
-		//	break;
-		//}
 		if (SPP == rt.getSPP())
 		{
 			size_t pos = filename.find_last_of('.');
