@@ -20,7 +20,7 @@
   "sigmaA": "0.10 0.35 0.80",
   "sigmaS": "4.00 4.00 4.00",
   "g": "0.0",
-  "intIOR": "1.3",
+  "intIOR": "1.0",
   "extIOR": "1.0"
 }
 ```
@@ -118,12 +118,41 @@ p_HG(cos(theta)) = (1 - g^2)
 
 因此，只有折射才会切换介质状态。第一版只支持一个介质层，不支持嵌套介质。
 
-## 6. 一条路径的执行顺序
+## 6. 介质散射点的 next-event estimation
+
+每次发生真实介质散射后，除了按照 HG 相函数继续随机游走，代码还会独立采样一个光源。对面积光源上的采样点 `y`，令：
+
+```text
+wi       = normalize(y - x)
+G(x,y)   = abs(dot(n_light, -wi)) / distance(x,y)^2
+p_lightA = p(select light) * p_A(y)
+p_phaseA = p_HG(wo, wi) * G(x,y)
+```
+
+沿阴影线计算介质透射率 `T_shadow` 后，直接光贡献为：
+
+```text
+L_NEE = L_e * T_shadow * p_HG(wo, wi) * G(x,y)
+        / (p_lightA + p_phaseA).
+```
+
+分母是 light sampling 与 phase sampling 的 balance heuristic。环境光使用立体角 PDF，因此没有面积与立体角之间的 `G` 转换：
+
+```text
+L_NEE_env = L_e * T_shadow * p_HG(wo, wi)
+            / (p_lightW + p_HG(wo, wi)).
+```
+
+如果光源位于介质外部，阴影线必须穿过物体边界。当前实现只在 `intIOR == extIOR` 时允许直线穿过边界，因为此时没有折射，连接方向不会改变。边界颜色和介质内的 Beer-Lambert 透射率仍会计入 `T_shadow`。
+
+当 `intIOR != extIOR` 时，代码不会使用忽略折射的有偏近似，而是关闭这条跨边界 NEE 路径。精确支持这种情况需要求解经过折射边界的非直线光源连接。
+
+## 7. 一条路径的执行顺序
 
 ```text
 1. 找到光线与最近表面的距离 d_surface。
 2. 如果当前在介质中，调用 sampleDistance(d_surface)：
-   a. 若发生散射，更新吞吐量，采样 HG 方向，回到第 1 步；
+   a. 若发生散射，更新吞吐量，执行光源 NEE，再采样 HG 方向并回到第 1 步；
    b. 若没有散射，更新吞吐量并继续处理边界。
 3. 如果击中普通表面，执行原来的直接光照和 BSDF 采样。
 4. 如果击中介质边界，采样 Fresnel 反射/折射；仅在折射时切换介质。
@@ -132,9 +161,9 @@ p_HG(cos(theta)) = (1 - g^2)
 
 实现入口在 `RayTracer::pathTrace()`；介质公式在 `HomogeneousMedium`；JSON 参数读取在 `loadInstance()`。
 
-## 7. 第一版的已知限制
+## 8. 当前限制
 
-- 介质散射点暂未做 next-event estimation。路径必须继续随机游走、离开物体并连接到光源，因此结果正确但可能较吵；
+- 跨越介质边界的 NEE 目前只支持折射率匹配的边界；
 - 只支持均匀介质和单层介质状态；
 - 网格必须闭合，且三角形法线必须一致朝外；
 - 当前相机不做像素内抖动，所以抗锯齿仍沿用项目原来的行为；

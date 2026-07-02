@@ -136,8 +136,120 @@ public:
 		}
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
+	Colour mediumShadowTransmittance(const Vec3& point, const Vec3& wi,
+		float distanceToLight, const Vec3& lightPoint, bool finiteLight,
+		const HomogeneousMedium* medium)
+	{
+		Ray shadowRay(point, wi);
+		IntersectionData boundaryIntersection = scene->traverse(shadowRay);
+
+		if (finiteLight && boundaryIntersection.t >= distanceToLight - EPSILON)
+		{
+			// The sampled light lies inside the same medium and no boundary blocks it.
+			return medium->transmittance(distanceToLight);
+		}
+		if (boundaryIntersection.t >= FLT_MAX)
+		{
+			return finiteLight
+				? medium->transmittance(distanceToLight)
+				: Colour(0.0f, 0.0f, 0.0f);
+		}
+
+		ShadingData boundary = scene->calculateShadingData(boundaryIntersection, shadowRay);
+		if (boundary.bsdf->interiorMedium() != medium
+			|| !boundary.bsdf->supportsStraightTransmission())
+		{
+			return Colour(0.0f, 0.0f, 0.0f);
+		}
+
+		Colour transmittance = medium->transmittance(boundaryIntersection.t)
+			* boundary.bsdf->straightTransmission(boundary);
+		Vec3 boundaryPoint = shadowRay.at(boundaryIntersection.t);
+
+		if (finiteLight)
+		{
+			if (!scene->visible(boundaryPoint, lightPoint))
+			{
+				return Colour(0.0f, 0.0f, 0.0f);
+			}
+		} else
+		{
+			Ray outsideRay(boundaryPoint + wi * EPSILON, wi);
+			if (!scene->bvh->traverseVisible(outsideRay, scene->triangles, FLT_MAX))
+			{
+				return Colour(0.0f, 0.0f, 0.0f);
+			}
+		}
+
+		return transmittance;
+	}
+	Colour computeMediumDirect(const Vec3& point, const Vec3& forward,
+		const HomogeneousMedium* medium, Sampler* sampler)
+	{
+		if (scene->lights.empty())
+		{
+			return Colour(0.0f, 0.0f, 0.0f);
+		}
+
+		float lightPmf;
+		Light* sampledLight = scene->sampleLight(sampler, lightPmf);
+		ShadingData mediumVertex = {};
+		mediumVertex.x = point;
+		mediumVertex.wo = -forward;
+		Colour emission;
+		float lightPdf;
+		Vec3 lightSample = sampledLight->sample(mediumVertex, sampler, emission, lightPdf);
+		if (lightPmf <= 0.0f || lightPdf <= 0.0f)
+		{
+			return Colour(0.0f, 0.0f, 0.0f);
+		}
+
+		if (sampledLight->isArea())
+		{
+			Vec3 toLight = lightSample - point;
+			float distanceSquared = Dot(toLight, toLight);
+			if (distanceSquared <= EPSILON * EPSILON)
+			{
+				return Colour(0.0f, 0.0f, 0.0f);
+			}
+			float distance = sqrtf(distanceSquared);
+			Vec3 wi = toLight / distance;
+			float cosAtLight = std::max(
+				0.0f, Dot(-wi, sampledLight->normal(mediumVertex, wi)));
+			if (cosAtLight <= 0.0f)
+			{
+				return Colour(0.0f, 0.0f, 0.0f);
+			}
+
+			Colour shadowWeight = mediumShadowTransmittance(
+				point, wi, distance, lightSample, true, medium);
+			float phasePdf = medium->phase(forward, wi);
+			float geometry = cosAtLight / distanceSquared;
+			float directPdfA = lightPmf * lightPdf;
+			float phasePdfA = phasePdf * geometry;
+			float denominator = directPdfA + phasePdfA;
+			if (denominator <= 0.0f)
+			{
+				return Colour(0.0f, 0.0f, 0.0f);
+			}
+			return emission * shadowWeight * (phasePdf * geometry / denominator);
+		}
+
+		Vec3 wi = lightSample;
+		Colour shadowWeight = mediumShadowTransmittance(
+			point, wi, FLT_MAX, Vec3(), false, medium);
+		float phasePdf = medium->phase(forward, wi);
+		float directPdfW = lightPmf * lightPdf;
+		float denominator = directPdfW + phasePdf;
+		if (denominator <= 0.0f)
+		{
+			return Colour(0.0f, 0.0f, 0.0f);
+		}
+		return emission * shadowWeight * (phasePdf / denominator);
+	}
 	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler,
-		float prevPdfw = 0.0f, const HomogeneousMedium* medium = nullptr)
+		float prevPdfw = 0.0f, const HomogeneousMedium* medium = nullptr,
+		Vec3 previousVertex = Vec3(), bool hasPreviousVertex = false)
 	{
 		IntersectionData intersection = scene->traverse(r);
 
@@ -152,27 +264,31 @@ public:
 
 			if (scattered)
 			{
+				Vec3 scatterPoint = r.at(mediumDistance);
+				Colour L = computeMediumDirect(scatterPoint, r.dir, medium, sampler)
+					* pathThroughput;
+
 				float probRR = 1.0f;
 				if (depth > 3)
 				{
 					probRR = 0.9f;
 					if (sampler->next() > probRR)
 					{
-						return Colour(0.0f, 0.0f, 0.0f);
+						return L;
 					}
 					pathThroughput = pathThroughput / probRR;
 				}
 
-				Vec3 scatterPoint = r.at(mediumDistance);
 				float phasePdf;
 				Vec3 wi = medium->samplePhase(r.dir, sampler, phasePdf);
 				if (phasePdf <= 0.0f)
 				{
-					return Colour(0.0f, 0.0f, 0.0f);
+					return L;
 				}
 
 				Ray nextRay(scatterPoint + wi * EPSILON, wi);
-				return pathTrace(nextRay, pathThroughput, depth + 1, sampler, 0.0f, medium);
+				return L + pathTrace(nextRay, pathThroughput, depth + 1, sampler,
+					phasePdf, medium, scatterPoint, true);
 			}
 		}
 
@@ -219,7 +335,9 @@ public:
 				float area = scene->triangles[intersection.ID].area;
 				float pdfPosOnLight = 1.0f / area;
 				float pdfADirect = pdfPosOnLight * pmfLights;
-				float rSq = shadingData.t * shadingData.t;
+				float rSq = hasPreviousVertex
+					? Dot(shadingData.x - previousVertex, shadingData.x - previousVertex)
+					: shadingData.t * shadingData.t;
 				float cosThetaLight = std::max(0.0f, Dot(shadingData.wo, shadingData.gNormal));
 				float pdfAIndirect = 0.0f;
 				if (rSq > 1e-6f) {
@@ -249,11 +367,12 @@ public:
 
 			const HomogeneousMedium* nextMedium = medium;
 			const HomogeneousMedium* boundaryMedium = shadingData.bsdf->interiorMedium();
+			bool transmitted = false;
 			if (boundaryMedium != nullptr)
 			{
 				float woSide = Dot(shadingData.wo, shadingData.gNormal);
 				float wiSide = Dot(wi, shadingData.gNormal);
-				bool transmitted = woSide * wiSide < 0.0f;
+				transmitted = woSide * wiSide < 0.0f;
 				if (transmitted)
 				{
 					// This baseline supports one non-nested interior medium.
@@ -262,8 +381,27 @@ public:
 			}
 
 			Ray nextRay(shadingData.x + (wi * EPSILON), wi);
+			float nextPrevPdfw = pdf;
+			Vec3 nextPreviousVertex = shadingData.x;
+			bool nextHasPreviousVertex = true;
+			if (shadingData.bsdf->isPureSpecular())
+			{
+				bool preserveMediumMIS = transmitted
+					&& shadingData.bsdf->supportsStraightTransmission()
+					&& prevPdfw > 0.0f && hasPreviousVertex;
+				if (preserveMediumMIS)
+				{
+					nextPrevPdfw = prevPdfw;
+					nextPreviousVertex = previousVertex;
+					nextHasPreviousVertex = true;
+				} else
+				{
+					nextPrevPdfw = 0.0f;
+					nextHasPreviousVertex = false;
+				}
+			}
 			L = L + pathTrace(nextRay, pathThroughput, depth+1, sampler,
-				shadingData.bsdf->isPureSpecular() ? 0.0f : pdf, nextMedium);
+				nextPrevPdfw, nextMedium, nextPreviousVertex, nextHasPreviousVertex);
 		}
 		return L;
 	}

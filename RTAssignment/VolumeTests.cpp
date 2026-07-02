@@ -94,6 +94,18 @@ bool testVacuum()
 		&& closeEnough(weight.g, 1.0f, 1e-6f)
 		&& closeEnough(weight.b, 1.0f, 1e-6f);
 }
+
+bool testStraightBoundaryRequirement()
+{
+	Colour sigmaA(0.1f, 0.1f, 0.1f);
+	Colour sigmaS(1.0f, 1.0f, 1.0f);
+	HomogeneousMediumBSDF matched(
+		nullptr, 1.0f, 1.0f, sigmaA, sigmaS, 0.0f);
+	HomogeneousMediumBSDF refractive(
+		nullptr, 1.3f, 1.0f, sigmaA, sigmaS, 0.0f);
+	return matched.supportsStraightTransmission()
+		&& !refractive.supportsStraightTransmission();
+}
 }
 
 int main()
@@ -102,6 +114,7 @@ int main()
 	passed = testVacuum() && passed;
 	passed = testDistanceEstimator() && passed;
 	passed = testHenyeyGreensteinMeanCosine() && passed;
+	passed = testStraightBoundaryRequirement() && passed;
 
 	if (!passed)
 	{
