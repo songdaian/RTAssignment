@@ -136,9 +136,46 @@ public:
 		}
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
-	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler, float prevPdfw = 0.0f)
+	Colour pathTrace(Ray& r, Colour& pathThroughput, int depth, Sampler* sampler,
+		float prevPdfw = 0.0f, const HomogeneousMedium* medium = nullptr)
 	{
 		IntersectionData intersection = scene->traverse(r);
+
+		// Before shading the next surface, sample a possible collision in the current medium.
+		if (medium != nullptr && intersection.t < FLT_MAX)
+		{
+			float mediumDistance;
+			Colour mediumWeight;
+			bool scattered = medium->sampleDistance(
+				intersection.t, sampler, mediumDistance, mediumWeight);
+			pathThroughput = pathThroughput * mediumWeight;
+
+			if (scattered)
+			{
+				float probRR = 1.0f;
+				if (depth > 3)
+				{
+					probRR = 0.9f;
+					if (sampler->next() > probRR)
+					{
+						return Colour(0.0f, 0.0f, 0.0f);
+					}
+					pathThroughput = pathThroughput / probRR;
+				}
+
+				Vec3 scatterPoint = r.at(mediumDistance);
+				float phasePdf;
+				Vec3 wi = medium->samplePhase(r.dir, sampler, phasePdf);
+				if (phasePdf <= 0.0f)
+				{
+					return Colour(0.0f, 0.0f, 0.0f);
+				}
+
+				Ray nextRay(scatterPoint + wi * EPSILON, wi);
+				return pathTrace(nextRay, pathThroughput, depth + 1, sampler, 0.0f, medium);
+			}
+		}
+
 		ShadingData shadingData = scene->calculateShadingData(intersection, r);
 		if (shadingData.t >= FLT_MAX)
 		{
@@ -209,8 +246,24 @@ public:
 		if (pdf > 0.0f)
 		{
 			pathThroughput = pathThroughput * bsdfVal * fabsf(Dot(wi, shadingData.sNormal)) / (pdf * probRR);
+
+			const HomogeneousMedium* nextMedium = medium;
+			const HomogeneousMedium* boundaryMedium = shadingData.bsdf->interiorMedium();
+			if (boundaryMedium != nullptr)
+			{
+				float woSide = Dot(shadingData.wo, shadingData.gNormal);
+				float wiSide = Dot(wi, shadingData.gNormal);
+				bool transmitted = woSide * wiSide < 0.0f;
+				if (transmitted)
+				{
+					// This baseline supports one non-nested interior medium.
+					nextMedium = (medium == boundaryMedium) ? nullptr : boundaryMedium;
+				}
+			}
+
 			Ray nextRay(shadingData.x + (wi * EPSILON), wi);
-			L = L + pathTrace(nextRay, pathThroughput, depth+1, sampler, shadingData.bsdf->isPureSpecular() ? 0.0f : pdf);
+			L = L + pathTrace(nextRay, pathThroughput, depth+1, sampler,
+				shadingData.bsdf->isPureSpecular() ? 0.0f : pdf, nextMedium);
 		}
 		return L;
 	}
@@ -521,8 +574,6 @@ public:
 	void render()
 	{
 		film->incrementSPP();
-
-		generateVPLs(1024);
 
 		numTilesX = (film->width + tileSize - 1) / tileSize;
 		unsigned int numTilesY = (film->height + tileSize - 1) / tileSize;

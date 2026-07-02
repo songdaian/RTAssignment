@@ -35,6 +35,7 @@ bld/
 # macOS and CMake generated files
 .DS_Store
 build-*/
+/build/
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/

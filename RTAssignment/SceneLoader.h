@@ -128,6 +128,20 @@ void loadInstance(std::string sceneName, std::vector<Triangle>& meshTriangles, s
 		material = new GlassBSDF(loadTexture(filename, textureManager), intIOR, extIOR);
 		meshMaterials.push_back(material);
 	}
+	if (instance.material.find("bsdf").getValue("") == "homogeneous_medium")
+	{
+		std::string filename = sceneName + "/" + instance.material.find("reflectance").getValue("");
+		float intIOR = instance.material.find("intIOR").getValue(1.33f);
+		float extIOR = instance.material.find("extIOR").getValue(1.0f);
+		Colour sigmaA;
+		Colour sigmaS;
+		instance.material.find("sigmaA").getValuesAsVector3(sigmaA.r, sigmaA.g, sigmaA.b);
+		instance.material.find("sigmaS").getValuesAsVector3(sigmaS.r, sigmaS.g, sigmaS.b);
+		float g = instance.material.find("g").getValue(0.0f);
+		material = new HomogeneousMediumBSDF(
+			loadTexture(filename, textureManager), intIOR, extIOR, sigmaA, sigmaS, g);
+		meshMaterials.push_back(material);
+	}
 	if (instance.material.find("bsdf").getValue("") == "mirror")
 	{
 		std::string filename = sceneName + "/" + instance.material.find("reflectance").getValue("");

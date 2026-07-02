@@ -9,6 +9,126 @@
 
 class BSDF;
 
+class HomogeneousMedium
+{
+public:
+	Colour sigmaA;
+	Colour sigmaS;
+	float g;
+
+	HomogeneousMedium()
+		: sigmaA(0.0f, 0.0f, 0.0f), sigmaS(0.0f, 0.0f, 0.0f), g(0.0f)
+	{
+	}
+
+	HomogeneousMedium(Colour _sigmaA, Colour _sigmaS, float _g)
+		: sigmaA(nonNegative(_sigmaA)), sigmaS(nonNegative(_sigmaS)),
+		  g(std::max(-0.999f, std::min(0.999f, _g)))
+	{
+	}
+
+	Colour sigmaT() const
+	{
+		return sigmaA + sigmaS;
+	}
+
+	Colour transmittance(float distance) const
+	{
+		Colour st = sigmaT();
+		return Colour(
+			st.r > 0.0f ? expf(-st.r * distance) : 1.0f,
+			st.g > 0.0f ? expf(-st.g * distance) : 1.0f,
+			st.b > 0.0f ? expf(-st.b * distance) : 1.0f);
+	}
+
+	// Returns true for a real scattering event and false when the ray reaches the surface.
+	// The returned RGB weight already includes transmittance and the sampling PDF.
+	bool sampleDistance(float distanceToSurface, Sampler* sampler,
+		float& distance, Colour& weight) const
+	{
+		Colour st = sigmaT();
+		int channel = std::min(2, static_cast<int>(sampler->next() * 3.0f));
+		float channelExtinction = component(st, channel);
+
+		if (channelExtinction > 0.0f)
+		{
+			float u = std::min(sampler->next(), std::nextafter(1.0f, 0.0f));
+			distance = -logf(1.0f - u) / channelExtinction;
+		} else
+		{
+			distance = FLT_MAX;
+		}
+
+		if (distance < distanceToSurface)
+		{
+			Colour tr = transmittance(distance);
+			float pdf = (st.r * tr.r + st.g * tr.g + st.b * tr.b) / 3.0f;
+			if (pdf <= 0.0f)
+			{
+				weight = Colour(0.0f, 0.0f, 0.0f);
+				return true;
+			}
+			weight = tr * sigmaS / pdf;
+			return true;
+		}
+
+		distance = distanceToSurface;
+		Colour tr = transmittance(distanceToSurface);
+		float pdf = (tr.r + tr.g + tr.b) / 3.0f;
+		weight = pdf > 0.0f ? tr / pdf : Colour(0.0f, 0.0f, 0.0f);
+		return false;
+	}
+
+	float phase(const Vec3& forward, const Vec3& wi) const
+	{
+		float cosTheta = std::max(-1.0f, std::min(1.0f, Dot(forward, wi)));
+		float denominator = 1.0f + g * g - 2.0f * g * cosTheta;
+		return (1.0f - g * g) /
+			(4.0f * M_PI * denominator * sqrtf(denominator));
+	}
+
+	Vec3 samplePhase(const Vec3& forward, Sampler* sampler, float& pdf) const
+	{
+		float u1 = sampler->next();
+		float u2 = sampler->next();
+		float cosTheta;
+		if (fabsf(g) < 1e-3f)
+		{
+			cosTheta = 1.0f - 2.0f * u1;
+		} else
+		{
+			float ratio = (1.0f - g * g) / (1.0f - g + 2.0f * g * u1);
+			cosTheta = (1.0f + g * g - ratio * ratio) / (2.0f * g);
+			cosTheta = std::max(-1.0f, std::min(1.0f, cosTheta));
+		}
+
+		float sinTheta = sqrtf(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+		float phi = 2.0f * M_PI * u2;
+		Vec3 local(sinTheta * cosf(phi), sinTheta * sinf(phi), cosTheta);
+		Frame frame;
+		frame.fromVector(forward);
+		Vec3 wi = frame.toWorld(local).normalize();
+		pdf = phase(forward, wi);
+		return wi;
+	}
+
+private:
+	static Colour nonNegative(const Colour& c)
+	{
+		return Colour(
+			std::max(0.0f, c.r),
+			std::max(0.0f, c.g),
+			std::max(0.0f, c.b));
+	}
+
+	static float component(const Colour& c, int channel)
+	{
+		if (channel == 0) return c.r;
+		if (channel == 1) return c.g;
+		return c.b;
+	}
+};
+
 class ShadingData
 {
 public:
@@ -85,6 +205,10 @@ public:
 	virtual float PDF(const ShadingData& shadingData, const Vec3& wi) = 0;
 	virtual bool isPureSpecular() = 0;
 	virtual bool isTwoSided() = 0;
+	virtual const HomogeneousMedium* interiorMedium() const
+	{
+		return nullptr;
+	}
 	bool isLight()
 	{
 		return emission.Lum() > 0 ? true : false;
@@ -305,6 +429,29 @@ public:
 	float mask(const ShadingData& shadingData)
 	{
 		return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+	}
+};
+
+class HomogeneousMediumBSDF : public GlassBSDF
+{
+public:
+	HomogeneousMedium medium;
+
+	HomogeneousMediumBSDF(Texture* _albedo, float _intIOR, float _extIOR,
+		Colour _sigmaA, Colour _sigmaS, float _g)
+		: GlassBSDF(_albedo, _intIOR, _extIOR), medium(_sigmaA, _sigmaS, _g)
+	{
+	}
+
+	// Preserve the outward-facing mesh normal so entering and leaving can be distinguished.
+	bool isTwoSided()
+	{
+		return false;
+	}
+
+	const HomogeneousMedium* interiorMedium() const
+	{
+		return &medium;
 	}
 };
 

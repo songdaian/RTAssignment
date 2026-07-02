@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(RTAssignment LANGUAGES CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -22,6 +24,12 @@ if(APPLE)
 endif()
 
 add_executable(RTAssignment ${RT_SOURCES})
+
+if(BUILD_TESTING)
+	add_executable(VolumeTests RTAssignment/VolumeTests.cpp)
+	target_include_directories(VolumeTests PRIVATE RTAssignment)
+	add_test(NAME volumetric_sampling COMMAND VolumeTests)
+endif()
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/RTAssignment"
 	PREFIX "RTAssignment"

@@ -39,6 +39,23 @@ Several functions and algorithms are left incomplete and require implementation.
 - Test incremental changes using appropriate scenes.
 - Working on Mac for development/testing.
 
+## Volumetric subsurface path tracing
+
+The homogeneous-medium implementation and its formulas are explained in
+[`VOLUMETRIC_SUBSURFACE_PATH_TRACING.md`](VOLUMETRIC_SUBSURFACE_PATH_TRACING.md).
+Render the included small test scene with:
+
+```bash
+./build/RTAssignment.app/Contents/MacOS/RTAssignment \
+  -scene volumetric-cornell -SPP 64 -outputFilename volumetric.hdr
+```
+
+Run the sampling checks with:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
 ## macOS / Xcode
 
 The source now builds on both Windows and macOS. Windows can continue using the existing Visual Studio solution, while macOS uses CMake to generate an Xcode project with a Metal-backed `GamesEngineeringBase` window.
