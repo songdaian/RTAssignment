@@ -106,6 +106,25 @@ bool testStraightBoundaryRequirement()
 	return matched.supportsStraightTransmission()
 		&& !refractive.supportsStraightTransmission();
 }
+
+bool testRefractiveMediumDirectTransmission()
+{
+	Texture white;
+	white.alpha = nullptr;
+	white.loadDefault();
+	HomogeneousMediumBSDF refractive(
+		&white, 1.5f, 1.0f,
+		Colour(0.1f, 0.1f, 0.1f),
+		Colour(1.0f, 1.0f, 1.0f), 0.0f);
+	ShadingData boundary = {};
+	boundary.wo = Vec3(0.0f, 0.0f, -1.0f);
+	boundary.sNormal = Vec3(0.0f, 0.0f, 1.0f);
+	Colour transmission = refractive.mediumDirectTransmission(boundary);
+	return refractive.supportsMediumDirectTransmission()
+		&& closeEnough(transmission.r, 0.96f, 1e-5f)
+		&& closeEnough(transmission.g, 0.96f, 1e-5f)
+		&& closeEnough(transmission.b, 0.96f, 1e-5f);
+}
 }
 
 int main()
@@ -115,6 +134,7 @@ int main()
 	passed = testDistanceEstimator() && passed;
 	passed = testHenyeyGreensteinMeanCosine() && passed;
 	passed = testStraightBoundaryRequirement() && passed;
+	passed = testRefractiveMediumDirectTransmission() && passed;
 
 	if (!passed)
 	{

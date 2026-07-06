@@ -136,13 +136,13 @@ public:
 
 		ShadingData boundary = scene->calculateShadingData(boundaryIntersection, shadowRay);
 		if (boundary.bsdf->interiorMedium() != medium
-			|| !boundary.bsdf->supportsStraightTransmission())
+			|| !boundary.bsdf->supportsMediumDirectTransmission())
 		{
 			return Colour(0.0f, 0.0f, 0.0f);
 		}
 
 		Colour transmittance = medium->transmittance(boundaryIntersection.t)
-			* boundary.bsdf->straightTransmission(boundary);
+			* boundary.bsdf->mediumDirectTransmission(boundary);
 		Vec3 boundaryPoint = shadowRay.at(boundaryIntersection.t);
 
 		if (finiteLight)

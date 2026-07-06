@@ -38,7 +38,7 @@
         "sigmaA": "0.15 0.80 1.50",
         "sigmaS": "6.0 6.0 6.0",
         "g": "0.0",
-        "intIOR": "1.0",
+        "intIOR": "1.5",
         "extIOR": "1.0"
     }, {
         "filename": "Cube.gem",

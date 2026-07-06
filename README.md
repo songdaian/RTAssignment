@@ -43,11 +43,12 @@ Several functions and algorithms are left incomplete and require implementation.
 
 The homogeneous-medium implementation and its formulas are explained in
 [`VOLUMETRIC_SUBSURFACE_PATH_TRACING.md`](VOLUMETRIC_SUBSURFACE_PATH_TRACING.md).
-Render the included small test scene with:
+The default executable renders the included small test scene. Configure its
+scene, output filename, sample count, and medium parameters in
+`RTAssignment/Main.cpp`, then run:
 
 ```bash
-./build/RTAssignment.app/Contents/MacOS/RTAssignment \
-  -scene volumetric-cornell -SPP 64 -outputFilename volumetric.hdr
+./build/RTAssignment.app/Contents/MacOS/RTAssignment
 ```
 
 Run the sampling checks with:
@@ -56,9 +57,16 @@ Run the sampling checks with:
 ctest --test-dir build --output-on-failure
 ```
 
+Runtime and homogeneous-medium settings are grouped in `RenderSettings` near
+the top of `RTAssignment/Main.cpp`. Edit `sigmaS`, `sigmaA`, `g`, and the sample
+count there, then rebuild and run.
+
 ## macOS / Xcode
 
-The source now builds on both Windows and macOS. Windows can continue using the existing Visual Studio solution, while macOS uses CMake to generate an Xcode project with a Metal-backed `GamesEngineeringBase` window.
+The source builds on both Windows and macOS through CMake. On Windows, use a Visual Studio CMake
+configuration (or generate a Visual Studio solution with CMake). On macOS,
+CMake generates an Xcode project with a Metal-backed `GamesEngineeringBase`
+window.
 
 Install CMake if you do not already have it:
 

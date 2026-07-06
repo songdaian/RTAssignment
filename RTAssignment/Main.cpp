@@ -3,53 +3,39 @@
 #include "SceneLoader.h"
 #define NOMINMAX
 #include "GamesEngineeringBase.h"
-#include <unordered_map>
 
-int main(int argc, char *argv[])
+namespace RenderSettings
 {
-	std::string sceneName = "volumetric-cornell";
-	std::string filename = "pathTracing.hdr";
-	unsigned int SPP = 8192; //samples per pixel
+	// Edit these values, then rebuild and run.
+	const char* sceneName = "volumetric-cornell";
+	const char* outputFilename = "pathTracing.hdr";
+	constexpr unsigned int samplesPerPixel = 8192;
+	// Warm white marble tuned for the scale of the cube in volumetric-cornell.
+	// Moderate scattering keeps the object milky without excessively long,
+	// noisy random walks.
+	const Colour sigmaS(4.0f, 4.5f, 5.0f);
+	const Colour sigmaA(0.06f, 0.10f, 0.18f);
+	constexpr float g = 0.0f;
+}
 
-	if (argc > 1)
+static void applyVolumeSettings(Scene* scene)
+{
+	for (BSDF* material : scene->materials)
 	{
-		std::unordered_map<std::string, std::string> args;
-		for (int i = 1; i < argc; ++i)
+		HomogeneousMediumBSDF* volume = dynamic_cast<HomogeneousMediumBSDF*>(material);
+		if (volume)
 		{
-			std::string arg = argv[i];
-			if (!arg.empty() && arg[0] == '-')
-			{
-				std::string argName = arg;
-				if (i + 1 < argc)
-				{
-					std::string argValue = argv[++i];
-					args[argName] = argValue;
-				} else
-				{
-					std::cerr << "Error: Missing value for argument '" << arg << "'\n";
-				}
-			} else
-			{
-				std::cerr << "Warning: Ignoring unexpected argument '" << arg << "'\n";
-			}
-		}
-		for (const auto& pair : args)
-		{
-			if (pair.first == "-scene")
-			{
-				sceneName = pair.second;
-			}
-			if (pair.first == "-outputFilename")
-			{
-				filename = pair.second;
-			}
-			if (pair.first == "-SPP")
-			{
-				SPP = stoi(pair.second);
-			}
+			volume->medium = HomogeneousMedium(
+				RenderSettings::sigmaA, RenderSettings::sigmaS, RenderSettings::g);
 		}
 	}
-	Scene* scene = loadScene(sceneName);
+}
+
+int main()
+{
+	const std::string filename = RenderSettings::outputFilename;
+	Scene* scene = loadScene(RenderSettings::sceneName);
+	applyVolumeSettings(scene);
 	GamesEngineeringBase::Window canvas;
 	canvas.create((unsigned int)scene->camera.width, (unsigned int)scene->camera.height, "Tracer", false);
 	RayTracer rt;
@@ -110,7 +96,7 @@ int main(int argc, char *argv[])
 			std::string ldrFilename = filename.substr(0, pos) + ".png";
 			rt.savePNG(ldrFilename);
 		}
-		if (SPP == rt.getSPP())
+		if (RenderSettings::samplesPerPixel == rt.getSPP())
 		{
 			size_t pos = filename.find_last_of('.');
 			std::string ldrFilename = filename.substr(0, pos) + ".png";

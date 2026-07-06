@@ -217,6 +217,14 @@ public:
 	{
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
+	virtual bool supportsMediumDirectTransmission() const
+	{
+		return false;
+	}
+	virtual Colour mediumDirectTransmission(const ShadingData& shadingData) const
+	{
+		return Colour(0.0f, 0.0f, 0.0f);
+	}
 	bool isLight()
 	{
 		return emission.Lum() > 0 ? true : false;
@@ -470,6 +478,23 @@ public:
 	Colour straightTransmission(const ShadingData& shadingData) const
 	{
 		return albedo->sample(shadingData.tu, shadingData.tv);
+	}
+
+	// Direct-light shadow connections use a straight boundary approximation.
+	// Keep this separate from supportsStraightTransmission(): refracted camera
+	// paths must not reuse straight-path MIS state, but should still receive
+	// light transmitted through the dielectric boundary.
+	bool supportsMediumDirectTransmission() const
+	{
+		return true;
+	}
+
+	Colour mediumDirectTransmission(const ShadingData& shadingData) const
+	{
+		float cosTheta = Dot(shadingData.wo, shadingData.sNormal);
+		float fresnel = ShadingHelper::fresnelDielectric(
+			cosTheta, intIOR, extIOR);
+		return albedo->sample(shadingData.tu, shadingData.tv) * (1.0f - fresnel);
 	}
 };
 
